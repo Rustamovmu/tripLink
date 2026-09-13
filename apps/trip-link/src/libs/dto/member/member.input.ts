@@ -14,9 +14,9 @@ import {
 	Min,
 	ValidateNested,
 } from 'class-validator';
-import { availableAgentSorts } from '../../config';
+import { availableAgentSorts, availableMemberSorts } from '../../config';
 import { Direction } from '../../enums/common.enum';
-import { MemberAuthType, MemberType } from '../../enums/member.enum';
+import { MemberAuthType, MemberStatus, MemberType } from '../../enums/member.enum';
 
 @InputType()
 export class MemberInput {
@@ -107,4 +107,53 @@ export class AgentsInquiry {
 	@Type(() => AgentSearch)
 	@Field(() => AgentSearch)
 	search!: AgentSearch;
+}
+
+@InputType()
+export class MemberSearch {
+	@IsOptional()
+	@IsEnum(MemberStatus)
+	@Field(() => MemberStatus, { nullable: true })
+	memberStatus?: MemberStatus;
+
+	@IsOptional()
+	@IsEnum(MemberType)
+	@Field(() => MemberType, { nullable: true })
+	memberType?: MemberType;
+
+	@IsOptional()
+	@IsString()
+	@MaxLength(100)
+	@Field(() => String, { nullable: true })
+	text?: string;
+}
+
+@InputType()
+export class MembersInquiry {
+	@IsInt()
+	@Min(1)
+	@Field(() => Int)
+	page!: number;
+
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	@Field(() => Int)
+	limit!: number;
+
+	@IsOptional()
+	@IsIn(availableMemberSorts)
+	@Field(() => String, { nullable: true })
+	sort?: (typeof availableMemberSorts)[number];
+
+	@IsOptional()
+	@IsEnum(Direction)
+	@Field(() => Direction, { nullable: true })
+	direction?: Direction;
+
+	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => MemberSearch)
+	@Field(() => MemberSearch)
+	search!: MemberSearch;
 }
