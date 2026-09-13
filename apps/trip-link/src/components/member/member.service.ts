@@ -4,10 +4,11 @@ import {
 	ForbiddenException,
 	Injectable,
 	InternalServerErrorException,
+	NotFoundException,
 	UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { isValidObjectId, Model } from 'mongoose';
 import { AuthPayload, Member } from '../../libs/dto/member/member';
 import { LoginInput, MemberInput } from '../../libs/dto/member/member.input';
 import { MemberUpdate } from '../../libs/dto/member/member.update';
@@ -194,6 +195,15 @@ export class MemberService {
 
 			throw new InternalServerErrorException(Message.UPDATE_FAILED);
 		}
+	}
+
+	public async getMember(memberId: string): Promise<Member> {
+		if (!isValidObjectId(memberId)) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const member = await this.memberModel.findOne({ _id: memberId, memberStatus: MemberStatus.ACTIVE }).exec();
+		if (!member) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+		return this.toPublicMember(member.toObject());
 	}
 
 	private validateSignupContact(authType: MemberAuthType, email?: string, phone?: string): void {

@@ -1,7 +1,7 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { LoginInput, MemberInput } from '../../libs/dto/member/member.input';
-import { AuthPayload } from '../../libs/dto/member/member';
+import { AuthPayload, Member } from '../../libs/dto/member/member';
 import { MemberUpdate } from '../../libs/dto/member/member.update';
 import { MemberType } from '../../libs/enums/member.enum';
 import { AuthMember } from '../auth/decorators/auth-member.decorator';
@@ -9,6 +9,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthTokenPayload } from '../auth/auth.service';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { WithoutGuard } from '../auth/guards/without.guard';
 import { MemberService } from './member.service';
 
 @Resolver()
@@ -42,5 +43,11 @@ export class MemberResolver {
 	@Query(() => String)
 	public checkAuthRoles(@AuthMember() authMember: AuthTokenPayload): string {
 		return `Hi ${authMember.memberNick}, you are ${authMember.memberType} (memberId: ${authMember.sub})`;
+	}
+
+	@UseGuards(WithoutGuard)
+	@Query(() => Member)
+	public getMember(@Args('memberId') memberId: string): Promise<Member> {
+		return this.memberService.getMember(memberId);
 	}
 }
