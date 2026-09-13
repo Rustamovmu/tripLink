@@ -10,6 +10,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AuthPayload, Member } from '../../libs/dto/member/member';
 import { LoginInput, MemberInput } from '../../libs/dto/member/member.input';
+import { MemberUpdate } from '../../libs/dto/member/member.update';
 import { Message } from '../../libs/enums/common.enum';
 import { MemberAuthType, MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { AuthService } from '../auth/auth.service';
@@ -21,6 +22,19 @@ type MemberRecord = Member & {
 	memberAddress?: string;
 	memberPassword: string;
 };
+
+type MemberUpdateFields = Partial<
+	Pick<
+		MemberRecord,
+		| 'memberNick'
+		| 'memberFullname'
+		| 'memberImage'
+		| 'memberCountry'
+		| 'memberDesc'
+		| 'memberFavoriteDestinations'
+		| 'memberPassword'
+	>
+>;
 
 @Injectable()
 export class MemberService {
@@ -106,6 +120,80 @@ export class MemberService {
 			accessToken,
 			member: this.toPublicMember(member.toObject()),
 		};
+	}
+
+	public async updateMember(memberId: string, input: MemberUpdate): Promise<AuthPayload> {
+		const { passwordChange } = input;
+		const update: MemberUpdateFields = {};
+
+		if (input.memberNick !== undefined) update.memberNick = input.memberNick.trim();
+		if (input.memberFullname !== undefined) update.memberFullname = input.memberFullname.trim();
+		if (input.memberImage !== undefined) update.memberImage = input.memberImage.trim();
+		if (input.memberCountry !== undefined) update.memberCountry = input.memberCountry.trim();
+		if (input.memberDesc !== undefined) update.memberDesc = input.memberDesc.trim();
+		if (input.memberFavoriteDestinations !== undefined) {
+			update.memberFavoriteDestinations = input.memberFavoriteDestinations.map((destination) => destination.trim());
+		}
+
+		let currentPasswordHash: string | undefined;
+		if (passwordChange) {
+			const member = await this.memberModel
+				.findOne({ _id: memberId, memberStatus: MemberStatus.ACTIVE })
+				.select('+memberPassword')
+				.exec();
+
+			if (!member) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
+			if (!member.memberPassword) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
+
+			currentPasswordHash = member.memberPassword;
+			const currentPasswordMatches = await this.authService.comparePasswords(
+				passwordChange.currentPassword,
+				currentPasswordHash,
+			);
+			if (!currentPasswordMatches) throw new UnauthorizedException(Message.INCORRECT_CURRENT_PASSWORD);
+
+			const reusesCurrentPassword = await this.authService.comparePasswords(
+				passwordChange.newPassword,
+				currentPasswordHash,
+			);
+			if (reusesCurrentPassword) throw new BadRequestException(Message.NEW_PASSWORD_MUST_DIFFER);
+
+			update.memberPassword = await this.authService.hashPassword(passwordChange.newPassword);
+		}
+
+		if (Object.keys(update).length === 0) throw new BadRequestException(Message.NO_UPDATE_FIELDS);
+
+		try {
+			const search: Record<string, unknown> = { _id: memberId, memberStatus: MemberStatus.ACTIVE };
+			if (currentPasswordHash) search.memberPassword = currentPasswordHash;
+
+			const updatedMember = await this.memberModel
+				.findOneAndUpdate(search, { $set: update }, { new: true, runValidators: true })
+				.exec();
+
+			if (!updatedMember) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
+
+			const accessToken = await this.authService.createToken({
+				_id: this.toObjectIdString(updatedMember._id),
+				memberType: updatedMember.memberType,
+				memberNick: updatedMember.memberNick,
+			});
+
+			return {
+				accessToken,
+				member: this.toPublicMember(updatedMember.toObject()),
+			};
+		} catch (error: unknown) {
+			if (error instanceof ForbiddenException) throw error;
+			if (this.isDuplicateKeyError(error)) {
+				throw new ConflictException(Message.USED_MEMBER_NICK_EMAIL_OR_PHONE);
+			}
+			if (error instanceof Error && error.name === 'ValidationError') {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		}
 	}
 
 	private validateSignupContact(authType: MemberAuthType, email?: string, phone?: string): void {

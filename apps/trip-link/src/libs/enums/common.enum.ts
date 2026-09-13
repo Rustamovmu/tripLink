@@ -24,6 +24,9 @@ export enum Message {
 	USED_MEMBER_NICK_EMAIL_OR_PHONE = 'Nickname, email, or phone is already in use!',
 	INVALID_AUTH_CONTACT = 'Provide the contact required by the selected authentication type!',
 	UNSUPPORTED_AUTH_TYPE = 'This authentication type is not supported yet!',
+	NO_UPDATE_FIELDS = 'Provide at least one field to update!',
+	INCORRECT_CURRENT_PASSWORD = 'Current password is incorrect!',
+	NEW_PASSWORD_MUST_DIFFER = 'New password must differ from the current password!',
 }
 
 export enum Direction {

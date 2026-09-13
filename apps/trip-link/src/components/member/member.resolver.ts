@@ -2,6 +2,7 @@ import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { LoginInput, MemberInput } from '../../libs/dto/member/member.input';
 import { AuthPayload } from '../../libs/dto/member/member';
+import { MemberUpdate } from '../../libs/dto/member/member.update';
 import { MemberType } from '../../libs/enums/member.enum';
 import { AuthMember } from '../auth/decorators/auth-member.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -22,6 +23,12 @@ export class MemberResolver {
 	@Mutation(() => AuthPayload)
 	public login(@Args('input') input: LoginInput): Promise<AuthPayload> {
 		return this.memberService.login(input);
+	}
+
+	@UseGuards(AuthGuard)
+	@Mutation(() => AuthPayload)
+	public updateMember(@Args('input') input: MemberUpdate, @AuthMember('sub') memberId: string): Promise<AuthPayload> {
+		return this.memberService.updateMember(memberId, input);
 	}
 
 	@UseGuards(AuthGuard)
