@@ -11,7 +11,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model } from 'mongoose';
 import { AuthPayload, Member, Members } from '../../libs/dto/member/member';
 import { AgentsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
-import { MemberUpdate } from '../../libs/dto/member/member.update';
+import { MemberAdminUpdate, MemberUpdate } from '../../libs/dto/member/member.update';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberAuthType, MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { AuthService } from '../auth/auth.service';
@@ -36,6 +36,20 @@ type MemberUpdateFields = Partial<
 		| 'memberPassword'
 	>
 >;
+
+type MemberAdminUpdateFields = Partial<
+	Pick<
+		MemberRecord,
+		| 'memberType'
+		| 'memberStatus'
+		| 'memberNick'
+		| 'memberFullname'
+		| 'memberImage'
+		| 'memberCountry'
+		| 'memberDesc'
+		| 'memberFavoriteDestinations'
+	>
+> & { deletedAt?: Date };
 
 @Injectable()
 export class MemberService {
@@ -316,6 +330,66 @@ export class MemberService {
 			.exec();
 
 		return result ?? { list: [], metaCounter: [] };
+	}
+
+	public async updateMemberByAdmin(adminId: string, input: MemberAdminUpdate): Promise<Member> {
+		if (!isValidObjectId(input.memberId)) throw new BadRequestException(Message.BAD_REQUEST);
+		if (Object.values(input).some((value) => value === null)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		if (input.memberId.toLowerCase() === adminId.toLowerCase()) {
+			const changesOwnRole = input.memberType !== undefined && input.memberType !== MemberType.ADMIN;
+			const disablesOwnAccount = input.memberStatus !== undefined && input.memberStatus !== MemberStatus.ACTIVE;
+
+			if (changesOwnRole || disablesOwnAccount) {
+				throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+			}
+		}
+
+		const update: MemberAdminUpdateFields = {};
+		if (input.memberType !== undefined) update.memberType = input.memberType;
+		if (input.memberStatus !== undefined) update.memberStatus = input.memberStatus;
+		if (input.memberNick !== undefined) update.memberNick = input.memberNick.trim();
+		if (input.memberFullname !== undefined) update.memberFullname = input.memberFullname.trim();
+		if (input.memberImage !== undefined) update.memberImage = input.memberImage.trim();
+		if (input.memberCountry !== undefined) update.memberCountry = input.memberCountry.trim();
+		if (input.memberDesc !== undefined) update.memberDesc = input.memberDesc.trim();
+		if (input.memberFavoriteDestinations !== undefined) {
+			update.memberFavoriteDestinations = input.memberFavoriteDestinations.map((destination) => destination.trim());
+		}
+
+		if (Object.keys(update).length === 0) throw new BadRequestException(Message.NO_UPDATE_FIELDS);
+
+		const updateOperation: {
+			$set: MemberAdminUpdateFields;
+			$unset?: { deletedAt: 1 };
+		} = { $set: update };
+
+		if (input.memberStatus === MemberStatus.DELETE) {
+			update.deletedAt = new Date();
+		} else if (input.memberStatus !== undefined) {
+			updateOperation.$unset = { deletedAt: 1 };
+		}
+
+		try {
+			const updatedMember = await this.memberModel
+				.findOneAndUpdate({ _id: input.memberId }, updateOperation, { new: true, runValidators: true })
+				.exec();
+
+			if (!updatedMember) throw new NotFoundException(Message.NO_DATA_FOUND);
+			return this.toPublicMember(updatedMember.toObject());
+		} catch (error: unknown) {
+			if (error instanceof NotFoundException) throw error;
+			if (this.isDuplicateKeyError(error)) {
+				throw new ConflictException(Message.USED_MEMBER_NICK_EMAIL_OR_PHONE);
+			}
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		}
 	}
 
 	private validateSignupContact(authType: MemberAuthType, email?: string, phone?: string): void {
