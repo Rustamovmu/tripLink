@@ -1,8 +1,39 @@
+import { Type } from 'class-transformer';
 import { Field, InputType } from '@nestjs/graphql';
-import { ArrayMaxSize, IsArray, IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import {
+	ArrayMaxSize,
+	IsArray,
+	IsNotEmpty,
+	IsOptional,
+	IsString,
+	Length,
+	MaxLength,
+	ValidateNested,
+} from 'class-validator';
+
+@InputType()
+export class PasswordChangeInput {
+	@IsString()
+	@IsNotEmpty()
+	@Length(8, 72)
+	@Field(() => String)
+	currentPassword!: string;
+
+	@IsString()
+	@IsNotEmpty()
+	@Length(8, 72)
+	@Field(() => String)
+	newPassword!: string;
+}
 
 @InputType()
 export class MemberUpdate {
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => PasswordChangeInput)
+	@Field(() => PasswordChangeInput, { nullable: true })
+	passwordChange?: PasswordChangeInput;
+
 	@IsOptional()
 	@IsString()
 	@Length(3, 20)
