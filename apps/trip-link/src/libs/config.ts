@@ -1,3 +1,8 @@
+import * as path from 'path';
+import * as uuidPackage from 'uuid';
+
+const uuidv4 = (uuidPackage as unknown as { v4: () => string }).v4;
+
 export const availableAgentSorts = [
 	'createdAt',
 	'updatedAt',
@@ -16,3 +21,12 @@ export const availableMemberSorts = [
 	'memberBookings',
 	'memberWarnings',
 ] as const;
+
+/** IMAGE CONFIGURATION **/
+
+export const validMimeTypes = ['image/png', 'image/jpg', 'image/jpeg'];
+
+export const getSerialForImage = (filename: string): string => {
+	const extension = path.parse(filename).ext;
+	return uuidv4() + extension;
+};
