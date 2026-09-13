@@ -1,10 +1,17 @@
-import { BadRequestException, ConflictException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+	BadRequestException,
+	ConflictException,
+	ForbiddenException,
+	Injectable,
+	InternalServerErrorException,
+	UnauthorizedException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AuthPayload, Member } from '../../libs/dto/member/member';
-import { MemberInput } from '../../libs/dto/member/member.input';
+import { LoginInput, MemberInput } from '../../libs/dto/member/member.input';
 import { Message } from '../../libs/enums/common.enum';
-import { MemberAuthType, MemberType } from '../../libs/enums/member.enum';
+import { MemberAuthType, MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { AuthService } from '../auth/auth.service';
 
 type MemberRecord = Member & {
@@ -66,6 +73,39 @@ export class MemberService {
 
 			throw new InternalServerErrorException(Message.CREATE_FAILED);
 		}
+	}
+
+	public async login(input: LoginInput): Promise<AuthPayload> {
+		const member = await this.memberModel
+			.findOne({ memberNick: input.memberNick.trim() })
+			.select('+memberPassword')
+			.exec();
+
+		if (!member || member.memberStatus === MemberStatus.DELETE || !member.memberPassword) {
+			throw new UnauthorizedException(Message.INVALID_CREDENTIALS);
+		}
+
+		if (member.memberStatus !== MemberStatus.ACTIVE) {
+			throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
+		}
+
+		const passwordMatches = await this.authService.comparePasswords(input.memberPassword, member.memberPassword);
+		if (!passwordMatches) throw new UnauthorizedException(Message.INVALID_CREDENTIALS);
+
+		await this.memberModel
+			.updateOne({ _id: member._id }, { $set: { lastLoginAt: new Date() } }, { timestamps: false })
+			.exec();
+
+		const accessToken = await this.authService.createToken({
+			_id: this.toObjectIdString(member._id),
+			memberType: member.memberType,
+			memberNick: member.memberNick,
+		});
+
+		return {
+			accessToken,
+			member: this.toPublicMember(member.toObject()),
+		};
 	}
 
 	private validateSignupContact(authType: MemberAuthType, email?: string, phone?: string): void {
