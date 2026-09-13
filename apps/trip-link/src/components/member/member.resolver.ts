@@ -1,7 +1,7 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
-import { LoginInput, MemberInput } from '../../libs/dto/member/member.input';
-import { AuthPayload, Member } from '../../libs/dto/member/member';
+import { AgentsInquiry, LoginInput, MemberInput } from '../../libs/dto/member/member.input';
+import { AuthPayload, Member, Members } from '../../libs/dto/member/member';
 import { MemberUpdate } from '../../libs/dto/member/member.update';
 import { MemberType } from '../../libs/enums/member.enum';
 import { AuthMember } from '../auth/decorators/auth-member.decorator';
@@ -49,5 +49,11 @@ export class MemberResolver {
 	@Query(() => Member)
 	public getMember(@Args('memberId') memberId: string): Promise<Member> {
 		return this.memberService.getMember(memberId);
+	}
+
+	@UseGuards(WithoutGuard)
+	@Query(() => Members)
+	public getAgents(@Args('input') input: AgentsInquiry): Promise<Members> {
+		return this.memberService.getAgents(input);
 	}
 }
