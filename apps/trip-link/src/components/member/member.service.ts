@@ -13,8 +13,10 @@ import { AuthPayload, Member, Members } from '../../libs/dto/member/member';
 import { AgentsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
 import { MemberAdminUpdate, MemberUpdate } from '../../libs/dto/member/member.update';
 import { Direction, Message } from '../../libs/enums/common.enum';
+import { LikeGroup } from '../../libs/enums/like.enum';
 import { MemberAuthType, MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { AuthService } from '../auth/auth.service';
+import { LikeService, LikeToggleInput } from '../like/like.service';
 
 type MemberRecord = Member & {
 	memberAuthType: MemberAuthType;
@@ -56,6 +58,7 @@ export class MemberService {
 	constructor(
 		@InjectModel('Member') private readonly memberModel: Model<MemberRecord>,
 		private readonly authService: AuthService,
+		private readonly likeService: LikeService,
 	) {}
 
 	public async signup(input: MemberInput): Promise<AuthPayload> {
@@ -389,6 +392,73 @@ export class MemberService {
 			}
 
 			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		}
+	}
+
+	public async likeTargetMember(memberId: string, likeRefId: string): Promise<Member> {
+		if (!isValidObjectId(memberId) || !isValidObjectId(likeRefId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+		if (memberId.toLowerCase() === likeRefId.toLowerCase()) {
+			throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+		}
+
+		const likeInput: LikeToggleInput = {
+			memberId,
+			likeRefId,
+			likeGroup: LikeGroup.MEMBER,
+		};
+		const session = await this.memberModel.db.startSession();
+
+		try {
+			const updatedMember = await session.withTransaction(async (): Promise<Member> => {
+				const actorExists = await this.memberModel
+					.exists({ _id: memberId, memberStatus: MemberStatus.ACTIVE })
+					.session(session);
+				const targetExists = await this.memberModel
+					.exists({ _id: likeRefId, memberStatus: MemberStatus.ACTIVE })
+					.session(session);
+
+				if (!actorExists) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
+				if (!targetExists) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+				await this.likeService.toggleLike(likeInput, session);
+				const memberLikes = await this.likeService.countTargetLikes(
+					{ likeRefId, likeGroup: LikeGroup.MEMBER },
+					session,
+				);
+
+				const targetMember = await this.memberModel
+					.findOneAndUpdate(
+						{ _id: likeRefId, memberStatus: MemberStatus.ACTIVE },
+						{ $set: { memberLikes } },
+						{ new: true, session, timestamps: false },
+					)
+					.exec();
+
+				if (!targetMember) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+				return this.toPublicMember(targetMember.toObject());
+			});
+
+			if (!updatedMember) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return updatedMember;
+		} catch (error: unknown) {
+			if (
+				error instanceof BadRequestException ||
+				error instanceof ForbiddenException ||
+				error instanceof NotFoundException ||
+				error instanceof InternalServerErrorException
+			) {
+				throw error;
+			}
+			if (this.isDuplicateKeyError(error)) throw new ConflictException(Message.SOMETHING_WENT_WRONG);
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		} finally {
+			await session.endSession();
 		}
 	}
 

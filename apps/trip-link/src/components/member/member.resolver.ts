@@ -73,4 +73,13 @@ export class MemberResolver {
 	): Promise<Member> {
 		return this.memberService.updateMemberByAdmin(adminId, input);
 	}
+
+	@UseGuards(AuthGuard)
+	@Mutation(() => Member)
+	public likeTargetMember(
+		@Args('memberId') targetMemberId: string,
+		@AuthMember('sub') memberId: string,
+	): Promise<Member> {
+		return this.memberService.likeTargetMember(memberId, targetMemberId);
+	}
 }
