@@ -1,5 +1,21 @@
-import { Field, InputType } from '@nestjs/graphql';
-import { IsEmail, IsEnum, IsIn, IsNotEmpty, IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { Field, InputType, Int } from '@nestjs/graphql';
+import {
+	IsEmail,
+	IsEnum,
+	IsIn,
+	IsInt,
+	IsNotEmpty,
+	IsOptional,
+	IsString,
+	Length,
+	Max,
+	MaxLength,
+	Min,
+	ValidateNested,
+} from 'class-validator';
+import { availableAgentSorts } from '../../config';
+import { Direction } from '../../enums/common.enum';
 import { MemberAuthType, MemberType } from '../../enums/member.enum';
 
 @InputType()
@@ -52,4 +68,43 @@ export class LoginInput {
 	@Length(8, 72)
 	@Field(() => String)
 	memberPassword!: string;
+}
+
+@InputType()
+export class AgentSearch {
+	@IsOptional()
+	@IsString()
+	@MaxLength(100)
+	@Field(() => String, { nullable: true })
+	text?: string;
+}
+
+@InputType()
+export class AgentsInquiry {
+	@IsInt()
+	@Min(1)
+	@Field(() => Int)
+	page!: number;
+
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	@Field(() => Int)
+	limit!: number;
+
+	@IsOptional()
+	@IsIn(availableAgentSorts)
+	@Field(() => String, { nullable: true })
+	sort?: (typeof availableAgentSorts)[number];
+
+	@IsOptional()
+	@IsEnum(Direction)
+	@Field(() => Direction, { nullable: true })
+	direction?: Direction;
+
+	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => AgentSearch)
+	@Field(() => AgentSearch)
+	search!: AgentSearch;
 }
