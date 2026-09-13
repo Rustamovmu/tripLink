@@ -1,6 +1,6 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
-import { AgentsInquiry, LoginInput, MemberInput } from '../../libs/dto/member/member.input';
+import { AgentsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
 import { AuthPayload, Member, Members } from '../../libs/dto/member/member';
 import { MemberUpdate } from '../../libs/dto/member/member.update';
 import { MemberType } from '../../libs/enums/member.enum';
@@ -55,5 +55,12 @@ export class MemberResolver {
 	@Query(() => Members)
 	public getAgents(@Args('input') input: AgentsInquiry): Promise<Members> {
 		return this.memberService.getAgents(input);
+	}
+
+	@Roles(MemberType.ADMIN)
+	@UseGuards(RolesGuard)
+	@Query(() => Members)
+	public getAllMembersByAdmin(@Args('input') input: MembersInquiry): Promise<Members> {
+		return this.memberService.getAllMembersByAdmin(input);
 	}
 }

@@ -10,7 +10,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model } from 'mongoose';
 import { AuthPayload, Member, Members } from '../../libs/dto/member/member';
-import { AgentsInquiry, LoginInput, MemberInput } from '../../libs/dto/member/member.input';
+import { AgentsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
 import { MemberUpdate } from '../../libs/dto/member/member.update';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberAuthType, MemberStatus, MemberType } from '../../libs/enums/member.enum';
@@ -211,6 +211,62 @@ export class MemberService {
 			memberType: MemberType.AGENT,
 			memberStatus: MemberStatus.ACTIVE,
 		};
+		const text = input.search.text?.trim();
+		if (text) {
+			const searchExpression = new RegExp(this.escapeRegExp(text), 'i');
+			match.$or = [{ memberNick: searchExpression }, { memberFullname: searchExpression }];
+		}
+
+		const sortField = input.sort ?? 'createdAt';
+		const sortDirection = input.direction ?? Direction.DESC;
+		const skip = (input.page - 1) * input.limit;
+
+		const [result] = await this.memberModel
+			.aggregate<Members>([
+				{ $match: match },
+				{ $sort: { [sortField]: sortDirection } },
+				{
+					$facet: {
+						list: [
+							{ $skip: skip },
+							{ $limit: input.limit },
+							{
+								$project: {
+									_id: 1,
+									memberType: 1,
+									memberStatus: 1,
+									memberNick: 1,
+									memberFullname: 1,
+									memberImage: 1,
+									memberCountry: 1,
+									memberDesc: 1,
+									memberFavoriteDestinations: 1,
+									memberTours: 1,
+									memberReviews: 1,
+									memberFollowers: 1,
+									memberFollowings: 1,
+									memberLikes: 1,
+									memberViews: 1,
+									memberComments: 1,
+									createdAt: 1,
+									updatedAt: 1,
+								},
+							},
+						],
+						metaCounter: [{ $count: 'total' }],
+					},
+				},
+			])
+			.exec();
+
+		return result ?? { list: [], metaCounter: [] };
+	}
+
+	public async getAllMembersByAdmin(input: MembersInquiry): Promise<Members> {
+		const match: Record<string, unknown> = {};
+		if (input.search.memberType) match.memberType = input.search.memberType;
+		if (input.search.memberStatus) match.memberStatus = input.search.memberStatus;
+
 		const text = input.search.text?.trim();
 		if (text) {
 			const searchExpression = new RegExp(this.escapeRegExp(text), 'i');
