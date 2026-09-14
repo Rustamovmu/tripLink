@@ -1,7 +1,5 @@
-import * as path from 'path';
-import * as uuidPackage from 'uuid';
-
-const uuidv4 = (uuidPackage as unknown as { v4: () => string }).v4;
+import { randomUUID } from 'node:crypto';
+import * as path from 'node:path';
 
 export const availableAgentSorts = [
 	'createdAt',
@@ -24,9 +22,13 @@ export const availableMemberSorts = [
 
 /** IMAGE CONFIGURATION **/
 
-export const validMimeTypes = ['image/png', 'image/jpg', 'image/jpeg'];
+export const uploadTargets = ['member', 'tour', 'article'] as const;
+export type UploadTarget = (typeof uploadTargets)[number];
+export type ImageExtension = '.png' | '.jpg';
 
-export const getSerialForImage = (filename: string): string => {
-	const extension = path.parse(filename).ext;
-	return uuidv4() + extension;
-};
+export const uploadRoot = path.resolve(process.cwd(), 'uploads');
+
+export const isUploadTarget = (target: string): target is UploadTarget =>
+	uploadTargets.includes(target as UploadTarget);
+
+export const getSerialForImage = (extension: ImageExtension): string => `${randomUUID()}${extension}`;

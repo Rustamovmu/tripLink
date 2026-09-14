@@ -1,15 +1,10 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
-import { createWriteStream } from 'node:fs';
-import * as path from 'path';
-import type { Readable } from 'node:stream';
 import type { GraphQLScalarType } from 'graphql';
 import * as graphqlUploadPackage from 'graphql-upload';
-import { getSerialForImage, validMimeTypes } from '../../libs/config';
 import { AgentsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
 import { AuthPayload, Member, Members } from '../../libs/dto/member/member';
 import { MemberAdminUpdate, MemberUpdate } from '../../libs/dto/member/member.update';
-import { Message } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { AuthMember } from '../auth/decorators/auth-member.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -17,13 +12,8 @@ import type { AuthTokenPayload } from '../auth/auth.service';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { WithoutGuard } from '../auth/guards/without.guard';
+import { FileUpload, UploadService } from '../upload/upload.service';
 import { MemberService } from './member.service';
-
-interface FileUpload {
-	createReadStream: () => Readable;
-	filename: string;
-	mimetype: string;
-}
 
 const GraphQLUpload = (
 	graphqlUploadPackage as unknown as {
@@ -33,7 +23,10 @@ const GraphQLUpload = (
 
 @Resolver()
 export class MemberResolver {
-	constructor(private readonly memberService: MemberService) {}
+	constructor(
+		private readonly memberService: MemberService,
+		private readonly uploadService: UploadService,
+	) {}
 
 	@Mutation(() => AuthPayload)
 	public signup(@Args('input') input: MemberInput): Promise<AuthPayload> {
@@ -107,32 +100,9 @@ export class MemberResolver {
 	public async imageUploader(
 		@Args({ name: 'file', type: () => GraphQLUpload }) file: unknown,
 		@Args('target') target: string,
+		@AuthMember('sub') memberId: string,
 	): Promise<string> {
-		console.log('Mutation: imageUploader');
-		const { createReadStream, filename, mimetype } = await (file as Promise<FileUpload>);
-
-		if (!filename) throw new Error(Message.UPLOAD_FAILED);
-		const extension = path.extname(filename).toLowerCase();
-		const validExtension = ['.jpg', '.jpeg', '.png'].includes(extension);
-		const validMime = validMimeTypes.includes(mimetype);
-		console.log('Upload file:', { filename, mimetype });
-		if (!validMime && !(mimetype === 'application/octet-stream' && validExtension)) {
-			throw new Error(`${Message.PROVIDE_ALLOWED_FORMAT} Received: ${mimetype || 'unknown'}`);
-		}
-
-		const imageName = getSerialForImage(filename);
-		const url = `uploads/${target}/${imageName}`;
-		const stream = createReadStream();
-
-		const result = await new Promise<boolean>((resolve, reject) => {
-			stream
-				.pipe(createWriteStream(url))
-				.on('finish', () => resolve(true))
-				.on('error', () => reject(new Error(Message.UPLOAD_FAILED)));
-		});
-		if (!result) throw new Error(Message.UPLOAD_FAILED);
-
-		return url;
+		return this.uploadService.uploadImage(file as Promise<FileUpload>, target, memberId);
 	}
 
 	@UseGuards(AuthGuard)
@@ -140,40 +110,8 @@ export class MemberResolver {
 	public async imagesUploader(
 		@Args('files', { type: () => [GraphQLUpload] }) files: Promise<FileUpload>[],
 		@Args('target') target: string,
+		@AuthMember('sub') memberId: string,
 	): Promise<string[]> {
-		console.log('Mutation: imagesUploader');
-
-		const uploadedImages: string[] = [];
-		const promisedList = files.map(async (image: Promise<FileUpload>, index: number): Promise<void> => {
-			try {
-				const { filename, mimetype, createReadStream } = await image;
-
-				const extension = path.extname(filename).toLowerCase();
-				const validExtension = ['.jpg', '.jpeg', '.png'].includes(extension);
-				const validMime = validMimeTypes.includes(mimetype);
-				if (!validMime && !(mimetype === 'application/octet-stream' && validExtension)) {
-					throw new Error(`${Message.PROVIDE_ALLOWED_FORMAT} Received: ${mimetype || 'unknown'}`);
-				}
-
-				const imageName = getSerialForImage(filename);
-				const url = `uploads/${target}/${imageName}`;
-				const stream = createReadStream();
-
-				const result = await new Promise<boolean>((resolve, reject) => {
-					stream
-						.pipe(createWriteStream(url))
-						.on('finish', () => resolve(true))
-						.on('error', () => reject(new Error(Message.UPLOAD_FAILED)));
-				});
-				if (!result) throw new Error(Message.UPLOAD_FAILED);
-
-				uploadedImages[index] = url;
-			} catch {
-				console.log('Error, file missing!');
-			}
-		});
-
-		await Promise.all(promisedList);
-		return uploadedImages;
+		return this.uploadService.uploadImages(files, target, memberId);
 	}
 }
