@@ -18,4 +18,11 @@ export class BookingResolver {
 	public createBooking(@Args('input') input: BookingInput, @AuthMember('sub') userId: string): Promise<Booking> {
 		return this.bookingService.createBooking(userId, input);
 	}
+
+	@Roles(MemberType.AGENT)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Booking)
+	public confirmBooking(@Args('bookingId') bookingId: string, @AuthMember('sub') agentId: string): Promise<Booking> {
+		return this.bookingService.confirmBooking(agentId, bookingId);
+	}
 }

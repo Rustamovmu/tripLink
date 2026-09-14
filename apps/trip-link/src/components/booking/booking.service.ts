@@ -18,7 +18,14 @@ import { MemberType } from '../../libs/enums/member.enum';
 import { TourStatus } from '../../libs/enums/tour.enum';
 import { MemberService } from '../member/member.service';
 
-type BookingDocumentShape = Booking & { __v?: number };
+type BookingDocumentShape = Omit<Booking, '_id' | 'userId' | 'tourId' | 'agentId' | 'tourDateId'> & {
+	_id: Types.ObjectId;
+	userId: Types.ObjectId;
+	tourId: Types.ObjectId;
+	agentId: Types.ObjectId;
+	tourDateId: Types.ObjectId;
+	__v?: number;
+};
 type TourDocumentShape = Omit<Tour, 'agentId' | 'tourAvailableDates'> & {
 	agentId: Types.ObjectId;
 	tourAvailableDates: Array<{
@@ -94,7 +101,7 @@ export class BookingService {
 				);
 
 				await this.memberService.increaseMemberBookingCount(userId, session);
-				return createdBooking.toObject();
+				return createdBooking.toObject() as unknown as Booking;
 			});
 
 			if (!result) throw new InternalServerErrorException(Message.CREATE_FAILED);
@@ -114,6 +121,115 @@ export class BookingService {
 				throw new BadRequestException(Message.BAD_REQUEST);
 			}
 			throw new InternalServerErrorException(Message.CREATE_FAILED);
+		} finally {
+			await session.endSession();
+		}
+	}
+
+	public async confirmBooking(agentId: string, bookingId: string): Promise<Booking> {
+		if (!isValidObjectId(agentId) || !isValidObjectId(bookingId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const member = await this.memberService.getMember(agentId);
+		if (member.memberType !== MemberType.AGENT) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const session = await this.bookingModel.db.startSession();
+		try {
+			const result = await session.withTransaction(async (): Promise<Booking> => {
+				const booking = await this.bookingModel
+					.findOne({
+						_id: bookingId,
+						agentId: new Types.ObjectId(agentId),
+						bookingStatus: BookingStatus.PENDING,
+					})
+					.session(session)
+					.lean<BookingDocumentShape>()
+					.exec();
+				if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+				const now = new Date();
+				const updatedTour = await this.tourModel
+					.findOneAndUpdate(
+						{
+							_id: booking.tourId,
+							tourStatus: TourStatus.ACTIVE,
+							tourAvailableSeats: { $gte: booking.numberOfPeople },
+							tourAvailableDates: {
+								$elemMatch: {
+									_id: booking.tourDateId,
+									startDate: { $gt: now },
+									availableSeats: { $gte: booking.numberOfPeople },
+								},
+							},
+						},
+						{
+							$inc: {
+								tourAvailableSeats: -booking.numberOfPeople,
+								'tourAvailableDates.$[selectedDate].availableSeats': -booking.numberOfPeople,
+								tourBookingCount: 1,
+							},
+						},
+						{
+							new: true,
+							runValidators: true,
+							session,
+							arrayFilters: [
+								{
+									'selectedDate._id': booking.tourDateId,
+									'selectedDate.startDate': { $gt: now },
+									'selectedDate.availableSeats': { $gte: booking.numberOfPeople },
+								},
+							],
+						},
+					)
+					.lean<TourDocumentShape>()
+					.exec();
+				if (!updatedTour) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+
+				if (updatedTour.tourAvailableSeats === 0) {
+					await this.tourModel
+						.updateOne(
+							{ _id: booking.tourId, tourStatus: TourStatus.ACTIVE, tourAvailableSeats: 0 },
+							{ $set: { tourStatus: TourStatus.SOLD_OUT, tourFeatured: false } },
+							{ session },
+						)
+						.exec();
+				}
+
+				const confirmedBooking = await this.bookingModel
+					.findOneAndUpdate(
+						{
+							_id: booking._id,
+							agentId: new Types.ObjectId(agentId),
+							bookingStatus: BookingStatus.PENDING,
+						},
+						{ $set: { bookingStatus: BookingStatus.CONFIRMED } },
+						{ new: true, runValidators: true, session },
+					)
+					.lean<Booking>()
+					.exec();
+				if (!confirmedBooking) throw new ConflictException(Message.UPDATE_FAILED);
+
+				return confirmedBooking;
+			});
+
+			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
+		} catch (error: unknown) {
+			if (
+				error instanceof BadRequestException ||
+				error instanceof ConflictException ||
+				error instanceof ForbiddenException ||
+				error instanceof NotFoundException ||
+				error instanceof InternalServerErrorException
+			) {
+				throw error;
+			}
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
 		} finally {
 			await session.endSession();
 		}
