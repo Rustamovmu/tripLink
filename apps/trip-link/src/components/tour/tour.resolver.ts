@@ -2,6 +2,7 @@ import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { TourInput } from '../../libs/dto/tour/tour.input';
 import { Tour } from '../../libs/dto/tour/tour';
+import { TourUpdate } from '../../libs/dto/tour/tour.update';
 import { MemberType } from '../../libs/enums/member.enum';
 import { AuthMember } from '../auth/decorators/auth-member.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -22,5 +23,12 @@ export class TourResolver {
 	@Query(() => Tour)
 	public getTour(@Args('tourId') tourId: string): Promise<Tour> {
 		return this.tourService.getTour(tourId);
+	}
+
+	@Roles(MemberType.AGENT)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Tour)
+	public updateTour(@Args('input') input: TourUpdate, @AuthMember('sub') agentId: string): Promise<Tour> {
+		return this.tourService.updateTour(agentId, input);
 	}
 }

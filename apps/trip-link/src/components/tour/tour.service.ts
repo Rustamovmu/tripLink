@@ -10,7 +10,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
 import { TourInput } from '../../libs/dto/tour/tour.input';
 import { Tour } from '../../libs/dto/tour/tour';
+import { TourUpdate } from '../../libs/dto/tour/tour.update';
 import { Message } from '../../libs/enums/common.enum';
+import { MemberType } from '../../libs/enums/member.enum';
 import { TourStatus } from '../../libs/enums/tour.enum';
 import { MemberService } from '../member/member.service';
 
@@ -73,7 +75,53 @@ export class TourService {
 		return tour;
 	}
 
-	private validateTourBusinessRules(input: TourInput): void {
+	public async updateTour(agentId: string, input: TourUpdate): Promise<Tour> {
+		if (!isValidObjectId(agentId) || !isValidObjectId(input.tourId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+		if (Object.values(input).some((value) => value === null)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const agent = await this.memberService.getMember(agentId);
+		if (agent.memberType !== MemberType.AGENT) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const existingTour = await this.tourModel.findOne({ _id: input.tourId, agentId }).lean().exec();
+		if (!existingTour) throw new NotFoundException(Message.NO_DATA_FOUND);
+		if ([TourStatus.COMPLETED, TourStatus.CANCELLED].includes(existingTour.tourStatus)) {
+			throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+		}
+
+		const requestedFields: Partial<TourUpdate> = { ...input };
+		delete requestedFields.tourId;
+		if (Object.keys(requestedFields).length === 0) throw new BadRequestException(Message.NO_UPDATE_FIELDS);
+		this.validateAgentStatusTransition(existingTour.tourStatus, requestedFields.tourStatus);
+
+		const update = this.normalizeTourUpdate(requestedFields);
+		const mergedTour = { ...existingTour, ...update } as TourInput & { tourStatus: TourStatus };
+		const requirePublishable = [TourStatus.PENDING, TourStatus.ACTIVE, TourStatus.SOLD_OUT].includes(
+			mergedTour.tourStatus,
+		);
+		this.validateTourBusinessRules(mergedTour, requirePublishable);
+
+		try {
+			const updatedTour = await this.tourModel
+				.findOneAndUpdate(
+					{ _id: input.tourId, agentId, tourStatus: existingTour.tourStatus },
+					{ $set: update },
+					{ new: true, runValidators: true },
+				)
+				.lean<Tour>()
+				.exec();
+
+			if (!updatedTour) throw new ConflictException(Message.UPDATE_FAILED);
+			return updatedTour;
+		} catch (error: unknown) {
+			this.rethrowUpdateError(error);
+		}
+	}
+
+	private validateTourBusinessRules(input: TourInput, requirePublishable = false): void {
 		if (input.tourDiscountPrice !== undefined && input.tourDiscountPrice > input.tourPrice) {
 			throw new BadRequestException(Message.BAD_REQUEST);
 		}
@@ -91,6 +139,13 @@ export class TourService {
 		if (
 			itineraryDays.size !== input.tourItinerary.length ||
 			input.tourItinerary.some((item) => item.day > input.tourDurationDays)
+		) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		if (
+			requirePublishable &&
+			(!input.tourImages.length || !input.tourAvailableDates.length || !input.tourItinerary.length)
 		) {
 			throw new BadRequestException(Message.BAD_REQUEST);
 		}
@@ -117,6 +172,51 @@ export class TourService {
 			tourIncludedServices: input.tourIncludedServices.map((value) => value.trim()),
 			tourExcludedServices: input.tourExcludedServices.map((value) => value.trim()),
 		};
+	}
+
+	private normalizeTourUpdate(input: Partial<Omit<TourUpdate, 'tourId'>>): Partial<Omit<TourUpdate, 'tourId'>> {
+		const normalized = { ...input };
+		if (input.tourTitle !== undefined) normalized.tourTitle = input.tourTitle.trim();
+		if (input.tourDescription !== undefined) normalized.tourDescription = input.tourDescription.trim();
+		if (input.tourDestination !== undefined) normalized.tourDestination = input.tourDestination.trim();
+		if (input.tourCountry !== undefined) normalized.tourCountry = input.tourCountry.trim();
+		if (input.tourCity !== undefined) normalized.tourCity = input.tourCity.trim();
+		if (input.tourImages !== undefined) normalized.tourImages = input.tourImages.map((value) => value.trim());
+		if (input.tourLanguages !== undefined) normalized.tourLanguages = input.tourLanguages.map((value) => value.trim());
+		if (input.tourTransportation !== undefined) {
+			normalized.tourTransportation = input.tourTransportation.map((value) => value.trim());
+		}
+		if (input.tourAccommodation !== undefined) normalized.tourAccommodation = input.tourAccommodation.trim();
+		if (input.tourMeals !== undefined) normalized.tourMeals = input.tourMeals.map((value) => value.trim());
+		if (input.tourItinerary !== undefined) {
+			normalized.tourItinerary = input.tourItinerary.map((item) => ({
+				...item,
+				title: item.title.trim(),
+				description: item.description.trim(),
+			}));
+		}
+		if (input.tourIncludedServices !== undefined) {
+			normalized.tourIncludedServices = input.tourIncludedServices.map((value) => value.trim());
+		}
+		if (input.tourExcludedServices !== undefined) {
+			normalized.tourExcludedServices = input.tourExcludedServices.map((value) => value.trim());
+		}
+		return normalized;
+	}
+
+	private validateAgentStatusTransition(currentStatus: TourStatus, requestedStatus?: TourStatus): void {
+		if (!requestedStatus || requestedStatus === currentStatus) return;
+
+		const allowedTransitions: Partial<Record<TourStatus, TourStatus[]>> = {
+			[TourStatus.DRAFT]: [TourStatus.PENDING, TourStatus.CANCELLED],
+			[TourStatus.PENDING]: [TourStatus.DRAFT, TourStatus.CANCELLED],
+			[TourStatus.ACTIVE]: [TourStatus.CANCELLED],
+			[TourStatus.SOLD_OUT]: [TourStatus.CANCELLED],
+		};
+
+		if (!allowedTransitions[currentStatus]?.includes(requestedStatus)) {
+			throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+		}
 	}
 
 	private slugify(value: string): string {
@@ -158,5 +258,19 @@ export class TourService {
 
 	private isMongooseInputError(error: unknown): boolean {
 		return error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError');
+	}
+
+	private rethrowUpdateError(error: unknown): never {
+		if (
+			error instanceof BadRequestException ||
+			error instanceof ConflictException ||
+			error instanceof ForbiddenException ||
+			error instanceof NotFoundException
+		) {
+			throw error;
+		}
+		if (this.isDuplicateKeyError(error)) throw new ConflictException(Message.UPDATE_FAILED);
+		if (this.isMongooseInputError(error)) throw new BadRequestException(Message.BAD_REQUEST);
+		throw new InternalServerErrorException(Message.UPDATE_FAILED);
 	}
 }
