@@ -8,7 +8,7 @@ import {
 	UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { isValidObjectId, Model } from 'mongoose';
+import { ClientSession, isValidObjectId, Model } from 'mongoose';
 import { AuthPayload, Member, Members } from '../../libs/dto/member/member';
 import { AgentsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
 import { MemberAdminUpdate, MemberUpdate } from '../../libs/dto/member/member.update';
@@ -230,6 +230,21 @@ export class MemberService {
 			.updateOne(
 				{ _id: memberId, memberType: MemberType.AGENT, memberStatus: MemberStatus.ACTIVE },
 				{ $inc: { memberTours: 1 } },
+			)
+			.exec();
+
+		if (result.matchedCount === 0) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
+	}
+
+	public async increaseMemberBookingCount(memberId: string, session: ClientSession): Promise<void> {
+		if (!isValidObjectId(memberId)) throw new BadRequestException(Message.BAD_REQUEST);
+		if (!session.inTransaction()) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
+
+		const result = await this.memberModel
+			.updateOne(
+				{ _id: memberId, memberType: MemberType.USER, memberStatus: MemberStatus.ACTIVE },
+				{ $inc: { memberBookings: 1 } },
+				{ session },
 			)
 			.exec();
 

@@ -1,0 +1,21 @@
+import { UseGuards } from '@nestjs/common';
+import { Args, Mutation, Resolver } from '@nestjs/graphql';
+import { BookingInput } from '../../libs/dto/booking/booking.input';
+import { Booking } from '../../libs/dto/booking/booking';
+import { MemberType } from '../../libs/enums/member.enum';
+import { AuthMember } from '../auth/decorators/auth-member.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { BookingService } from './booking.service';
+
+@Resolver()
+export class BookingResolver {
+	constructor(private readonly bookingService: BookingService) {}
+
+	@Roles(MemberType.USER)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Booking)
+	public createBooking(@Args('input') input: BookingInput, @AuthMember('sub') userId: string): Promise<Booking> {
+		return this.bookingService.createBooking(userId, input);
+	}
+}
