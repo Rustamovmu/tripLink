@@ -223,6 +223,19 @@ export class MemberService {
 		return this.toPublicMember(member.toObject());
 	}
 
+	public async increaseMemberTourCount(memberId: string): Promise<void> {
+		if (!isValidObjectId(memberId)) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const result = await this.memberModel
+			.updateOne(
+				{ _id: memberId, memberType: MemberType.AGENT, memberStatus: MemberStatus.ACTIVE },
+				{ $inc: { memberTours: 1 } },
+			)
+			.exec();
+
+		if (result.matchedCount === 0) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
+	}
+
 	public async getAgents(input: AgentsInquiry): Promise<Members> {
 		const match: Record<string, unknown> = {
 			memberType: MemberType.AGENT,
