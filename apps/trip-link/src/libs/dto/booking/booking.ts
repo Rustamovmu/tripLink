@@ -27,6 +27,9 @@ export class Booking {
 	@Field(() => Date)
 	selectedDate!: Date;
 
+	@Field(() => Date, { nullable: true })
+	selectedEndDate?: Date;
+
 	@Field(() => Int)
 	numberOfPeople!: number;
 

@@ -9,6 +9,7 @@ const BookingSchema = new Schema(
 		agentId: { type: Schema.Types.ObjectId, required: true, ref: 'Member' },
 		tourDateId: { type: Schema.Types.ObjectId, required: true },
 		selectedDate: { type: Date, required: true },
+		selectedEndDate: { type: Date },
 		numberOfPeople: { type: Number, required: true, min: 1 },
 		unitPrice: { type: Number, required: true, min: 0 },
 		totalPrice: { type: Number, required: true, min: 0 },

@@ -98,6 +98,7 @@ export class BookingService {
 							agentId: tour.agentId,
 							tourDateId: new Types.ObjectId(input.tourDateId),
 							selectedDate: selectedTourDate.startDate,
+							selectedEndDate: selectedTourDate.endDate,
 							numberOfPeople: input.numberOfPeople,
 							unitPrice,
 							totalPrice,
@@ -612,6 +613,72 @@ export class BookingService {
 			throw new InternalServerErrorException(Message.UPDATE_FAILED);
 		} finally {
 			await session.endSession();
+		}
+	}
+
+	public async completeBooking(agentId: string, bookingId: string): Promise<Booking> {
+		if (!isValidObjectId(agentId) || !isValidObjectId(bookingId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const member = await this.memberService.getMember(agentId);
+		if (member.memberType !== MemberType.AGENT) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const booking = await this.bookingModel
+			.findOne({
+				_id: bookingId,
+				agentId: new Types.ObjectId(agentId),
+				bookingStatus: BookingStatus.CONFIRMED,
+				paymentStatus: PaymentStatus.PAID,
+			})
+			.lean<BookingDocumentShape>()
+			.exec();
+		if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+		let selectedEndDate = booking.selectedEndDate;
+		if (!selectedEndDate) {
+			const tour = await this.tourModel.findById(booking.tourId).lean<TourDocumentShape>().exec();
+			const selectedTourDate = tour?.tourAvailableDates.find((tourDate) => tourDate._id.equals(booking.tourDateId));
+			if (!selectedTourDate) throw new NotFoundException(Message.NO_DATA_FOUND);
+			selectedEndDate = selectedTourDate.endDate;
+		}
+		if (selectedEndDate.getTime() > Date.now()) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+
+		try {
+			const completedBooking = await this.bookingModel
+				.findOneAndUpdate(
+					{
+						_id: booking._id,
+						agentId: new Types.ObjectId(agentId),
+						bookingStatus: BookingStatus.CONFIRMED,
+						paymentStatus: PaymentStatus.PAID,
+					},
+					{
+						$set: {
+							bookingStatus: BookingStatus.COMPLETED,
+							selectedEndDate,
+							completedAt: new Date(),
+						},
+					},
+					{ new: true, runValidators: true },
+				)
+				.lean<Booking>()
+				.exec();
+
+			if (!completedBooking) throw new ConflictException(Message.UPDATE_FAILED);
+			return completedBooking;
+		} catch (error: unknown) {
+			if (
+				error instanceof BadRequestException ||
+				error instanceof ConflictException ||
+				error instanceof NotFoundException
+			) {
+				throw error;
+			}
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
 		}
 	}
 

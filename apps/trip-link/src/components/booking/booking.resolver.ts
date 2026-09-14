@@ -91,4 +91,11 @@ export class BookingResolver {
 	public refundBookingByAdmin(@Args('input') input: BookingRefundInput): Promise<Booking> {
 		return this.bookingService.refundBookingByAdmin(input);
 	}
+
+	@Roles(MemberType.AGENT)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Booking)
+	public completeBooking(@Args('bookingId') bookingId: string, @AuthMember('sub') agentId: string): Promise<Booking> {
+		return this.bookingService.completeBooking(agentId, bookingId);
+	}
 }
