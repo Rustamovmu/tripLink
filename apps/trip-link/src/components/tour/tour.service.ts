@@ -4,9 +4,10 @@ import {
 	ForbiddenException,
 	Injectable,
 	InternalServerErrorException,
+	NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { isValidObjectId, Model, Types } from 'mongoose';
+import { isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
 import { TourInput } from '../../libs/dto/tour/tour.input';
 import { Tour } from '../../libs/dto/tour/tour';
 import { Message } from '../../libs/enums/common.enum';
@@ -14,6 +15,7 @@ import { TourStatus } from '../../libs/enums/tour.enum';
 import { MemberService } from '../member/member.service';
 
 type TourDocumentShape = Tour & { __v?: number };
+const PUBLIC_TOUR_STATUSES = [TourStatus.ACTIVE, TourStatus.SOLD_OUT];
 
 @Injectable()
 export class TourService {
@@ -49,6 +51,26 @@ export class TourService {
 			if (this.isMongooseInputError(error)) throw new BadRequestException(Message.BAD_REQUEST);
 			throw new InternalServerErrorException(Message.CREATE_FAILED);
 		}
+	}
+
+	public async getTour(tourId: string): Promise<Tour> {
+		if (!isValidObjectId(tourId)) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const [tour] = await this.tourModel
+			.aggregate<Tour>([
+				{
+					$match: {
+						_id: new Types.ObjectId(tourId),
+						tourStatus: { $in: PUBLIC_TOUR_STATUSES },
+					},
+				},
+				this.agentLookup(),
+				{ $unwind: { path: '$agentData', preserveNullAndEmptyArrays: true } },
+			])
+			.exec();
+
+		if (!tour) throw new NotFoundException(Message.NO_DATA_FOUND);
+		return tour;
 	}
 
 	private validateTourBusinessRules(input: TourInput): void {
@@ -106,6 +128,28 @@ export class TourService {
 			.replace(/^-+|-+$/g, '')
 			.slice(0, 80);
 		return slug || 'tour';
+	}
+
+	private agentLookup(): PipelineStage.Lookup {
+		return {
+			$lookup: {
+				from: 'members',
+				let: { agentId: '$agentId' },
+				pipeline: [
+					{ $match: { $expr: { $eq: ['$_id', '$$agentId'] } } },
+					{
+						$project: {
+							memberPassword: 0,
+							memberEmail: 0,
+							memberPhone: 0,
+							memberPhoneCountryCode: 0,
+							memberAddress: 0,
+						},
+					},
+				],
+				as: 'agentData',
+			},
+		};
 	}
 
 	private isDuplicateKeyError(error: unknown): boolean {
