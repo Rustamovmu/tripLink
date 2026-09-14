@@ -2,7 +2,7 @@ import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { AgentToursInquiry, AllToursInquiry, TourInput, ToursInquiry } from '../../libs/dto/tour/tour.input';
 import { Tour, Tours } from '../../libs/dto/tour/tour';
-import { TourUpdate } from '../../libs/dto/tour/tour.update';
+import { TourAdminUpdate, TourUpdate } from '../../libs/dto/tour/tour.update';
 import { MemberType } from '../../libs/enums/member.enum';
 import { AuthMember } from '../auth/decorators/auth-member.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -49,5 +49,12 @@ export class TourResolver {
 	@Query(() => Tours)
 	public getAllToursByAdmin(@Args('input') input: AllToursInquiry): Promise<Tours> {
 		return this.tourService.getAllToursByAdmin(input);
+	}
+
+	@Roles(MemberType.ADMIN)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Tour)
+	public updateTourByAdmin(@Args('input') input: TourAdminUpdate): Promise<Tour> {
+		return this.tourService.updateTourByAdmin(input);
 	}
 }

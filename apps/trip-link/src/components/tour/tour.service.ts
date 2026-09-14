@@ -10,7 +10,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
 import { AgentToursInquiry, AllToursInquiry, TourInput, ToursInquiry } from '../../libs/dto/tour/tour.input';
 import { Tour, Tours } from '../../libs/dto/tour/tour';
-import { TourUpdate } from '../../libs/dto/tour/tour.update';
+import { TourAdminUpdate, TourUpdate } from '../../libs/dto/tour/tour.update';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { TourStatus } from '../../libs/enums/tour.enum';
@@ -152,6 +152,52 @@ export class TourService {
 		return this.aggregateTours(match, input.page, input.limit, input.sort, input.direction);
 	}
 
+	public async updateTourByAdmin(input: TourAdminUpdate): Promise<Tour> {
+		if (!isValidObjectId(input.tourId) || Object.values(input).some((value) => value === null)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const update: Partial<Omit<TourAdminUpdate, 'tourId'>> = { ...input };
+		delete (update as Partial<TourAdminUpdate>).tourId;
+		if (Object.keys(update).length === 0) throw new BadRequestException(Message.NO_UPDATE_FIELDS);
+
+		const existingTour = await this.tourModel.findById(input.tourId).lean().exec();
+		if (!existingTour) throw new NotFoundException(Message.NO_DATA_FOUND);
+		this.validateAdminStatusTransition(existingTour.tourStatus, update.tourStatus);
+		if (update.tourStatus && update.tourStatus !== TourStatus.ACTIVE) update.tourFeatured = false;
+
+		const mergedTour = { ...existingTour, ...update } as TourInput & {
+			tourStatus: TourStatus;
+			tourFeatured: boolean;
+		};
+		if (mergedTour.tourStatus === TourStatus.ACTIVE) {
+			this.validateTourBusinessRules(mergedTour, true);
+			if (mergedTour.tourAvailableSeats < 1) throw new BadRequestException(Message.BAD_REQUEST);
+		}
+		if (mergedTour.tourStatus === TourStatus.SOLD_OUT && mergedTour.tourAvailableSeats !== 0) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+		if (mergedTour.tourFeatured && mergedTour.tourStatus !== TourStatus.ACTIVE) {
+			throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+		}
+
+		try {
+			const updatedTour = await this.tourModel
+				.findOneAndUpdate(
+					{ _id: input.tourId, tourStatus: existingTour.tourStatus },
+					{ $set: update },
+					{ new: true, runValidators: true },
+				)
+				.lean<Tour>()
+				.exec();
+
+			if (!updatedTour) throw new ConflictException(Message.UPDATE_FAILED);
+			return updatedTour;
+		} catch (error: unknown) {
+			this.rethrowUpdateError(error);
+		}
+	}
+
 	private async aggregateTours(
 		match: Record<string, unknown>,
 		page: number,
@@ -275,6 +321,21 @@ export class TourService {
 			[TourStatus.PENDING]: [TourStatus.DRAFT, TourStatus.CANCELLED],
 			[TourStatus.ACTIVE]: [TourStatus.CANCELLED],
 			[TourStatus.SOLD_OUT]: [TourStatus.CANCELLED],
+		};
+
+		if (!allowedTransitions[currentStatus]?.includes(requestedStatus)) {
+			throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+		}
+	}
+
+	private validateAdminStatusTransition(currentStatus: TourStatus, requestedStatus?: TourStatus): void {
+		if (!requestedStatus || requestedStatus === currentStatus) return;
+
+		const allowedTransitions: Partial<Record<TourStatus, TourStatus[]>> = {
+			[TourStatus.DRAFT]: [TourStatus.CANCELLED],
+			[TourStatus.PENDING]: [TourStatus.DRAFT, TourStatus.ACTIVE, TourStatus.CANCELLED],
+			[TourStatus.ACTIVE]: [TourStatus.SOLD_OUT, TourStatus.COMPLETED, TourStatus.CANCELLED],
+			[TourStatus.SOLD_OUT]: [TourStatus.ACTIVE, TourStatus.COMPLETED, TourStatus.CANCELLED],
 		};
 
 		if (!allowedTransitions[currentStatus]?.includes(requestedStatus)) {
