@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
-import { TourInput, ToursInquiry } from '../../libs/dto/tour/tour.input';
+import { AgentToursInquiry, TourInput, ToursInquiry } from '../../libs/dto/tour/tour.input';
 import { Tour, Tours } from '../../libs/dto/tour/tour';
 import { TourUpdate } from '../../libs/dto/tour/tour.update';
 import { Direction, Message } from '../../libs/enums/common.enum';
@@ -125,8 +125,31 @@ export class TourService {
 		const match: Record<string, unknown> = { tourStatus: { $in: PUBLIC_TOUR_STATUSES } };
 		this.shapePublicTourMatch(match, input);
 
-		const sortField = input.sort === 'tourPrice' ? 'effectiveTourPrice' : (input.sort ?? 'createdAt');
-		const sortDirection = input.direction ?? Direction.DESC;
+		return this.aggregateTours(match, input.page, input.limit, input.sort, input.direction);
+	}
+
+	public async getAgentTours(agentId: string, input: AgentToursInquiry): Promise<Tours> {
+		if (!isValidObjectId(agentId)) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const agent = await this.memberService.getMember(agentId);
+		if (agent.memberType !== MemberType.AGENT) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const match: Record<string, unknown> = { agentId: new Types.ObjectId(agentId) };
+		if (input.search.tourStatus) match.tourStatus = input.search.tourStatus;
+		if (input.search.text?.trim()) match.$text = { $search: input.search.text.trim() };
+
+		return this.aggregateTours(match, input.page, input.limit, input.sort, input.direction);
+	}
+
+	private async aggregateTours(
+		match: Record<string, unknown>,
+		page: number,
+		limit: number,
+		sort: ToursInquiry['sort'],
+		direction: Direction | undefined,
+	): Promise<Tours> {
+		const sortField = sort === 'tourPrice' ? 'effectiveTourPrice' : (sort ?? 'createdAt');
+		const sortDirection = direction ?? Direction.DESC;
 		const [result] = await this.tourModel
 			.aggregate<Tours>([
 				{ $match: match },
@@ -135,8 +158,8 @@ export class TourService {
 				{
 					$facet: {
 						list: [
-							{ $skip: (input.page - 1) * input.limit },
-							{ $limit: input.limit },
+							{ $skip: (page - 1) * limit },
+							{ $limit: limit },
 							this.agentLookup(),
 							{ $unwind: { path: '$agentData', preserveNullAndEmptyArrays: true } },
 							{ $unset: 'effectiveTourPrice' },

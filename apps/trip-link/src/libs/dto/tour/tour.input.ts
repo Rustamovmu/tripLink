@@ -21,7 +21,7 @@ import {
 } from 'class-validator';
 import { availableTourSorts } from '../../config';
 import { Direction } from '../../enums/common.enum';
-import { TourCategory, TourDifficulty } from '../../enums/tour.enum';
+import { TourCategory, TourDifficulty, TourStatus } from '../../enums/tour.enum';
 
 @InputType()
 export class TourDateInput {
@@ -341,4 +341,48 @@ export class ToursInquiry {
 	@Type(() => TourSearch)
 	@Field(() => TourSearch)
 	search!: TourSearch;
+}
+
+@InputType()
+export class AgentTourSearch {
+	@IsOptional()
+	@IsEnum(TourStatus)
+	@Field(() => TourStatus, { nullable: true })
+	tourStatus?: TourStatus;
+
+	@IsOptional()
+	@IsString()
+	@MaxLength(150)
+	@Field(() => String, { nullable: true })
+	text?: string;
+}
+
+@InputType()
+export class AgentToursInquiry {
+	@IsInt()
+	@Min(1)
+	@Field(() => Int)
+	page!: number;
+
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	@Field(() => Int)
+	limit!: number;
+
+	@IsOptional()
+	@IsIn(availableTourSorts)
+	@Field(() => String, { nullable: true })
+	sort?: (typeof availableTourSorts)[number];
+
+	@IsOptional()
+	@IsEnum(Direction)
+	@Field(() => Direction, { nullable: true })
+	direction?: Direction;
+
+	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => AgentTourSearch)
+	@Field(() => AgentTourSearch)
+	search!: AgentTourSearch;
 }
