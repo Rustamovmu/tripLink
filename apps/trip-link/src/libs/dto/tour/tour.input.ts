@@ -386,3 +386,64 @@ export class AgentToursInquiry {
 	@Field(() => AgentTourSearch)
 	search!: AgentTourSearch;
 }
+
+@InputType()
+export class AdminTourSearch {
+	@IsOptional()
+	@IsEnum(TourStatus)
+	@Field(() => TourStatus, { nullable: true })
+	tourStatus?: TourStatus;
+
+	@IsOptional()
+	@IsArray()
+	@ArrayMaxSize(20)
+	@IsEnum(TourCategory, { each: true })
+	@Field(() => [TourCategory], { nullable: true })
+	categories?: TourCategory[];
+
+	@IsOptional()
+	@IsMongoId()
+	@Field(() => String, { nullable: true })
+	agentId?: string;
+
+	@IsOptional()
+	@IsBoolean()
+	@Field(() => Boolean, { nullable: true })
+	featured?: boolean;
+
+	@IsOptional()
+	@IsString()
+	@MaxLength(150)
+	@Field(() => String, { nullable: true })
+	text?: string;
+}
+
+@InputType()
+export class AllToursInquiry {
+	@IsInt()
+	@Min(1)
+	@Field(() => Int)
+	page!: number;
+
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	@Field(() => Int)
+	limit!: number;
+
+	@IsOptional()
+	@IsIn(availableTourSorts)
+	@Field(() => String, { nullable: true })
+	sort?: (typeof availableTourSorts)[number];
+
+	@IsOptional()
+	@IsEnum(Direction)
+	@Field(() => Direction, { nullable: true })
+	direction?: Direction;
+
+	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => AdminTourSearch)
+	@Field(() => AdminTourSearch)
+	search!: AdminTourSearch;
+}
