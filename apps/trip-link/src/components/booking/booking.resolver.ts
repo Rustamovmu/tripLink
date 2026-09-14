@@ -76,4 +76,11 @@ export class BookingResolver {
 	public getAllBookingsByAdmin(@Args('input') input: AllBookingsInquiry): Promise<Bookings> {
 		return this.bookingService.getAllBookingsByAdmin(input);
 	}
+
+	@Roles(MemberType.USER)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Booking)
+	public payBooking(@Args('bookingId') bookingId: string, @AuthMember('sub') userId: string): Promise<Booking> {
+		return this.bookingService.payBooking(userId, bookingId);
+	}
 }

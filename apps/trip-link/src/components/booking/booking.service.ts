@@ -443,6 +443,74 @@ export class BookingService {
 		]);
 	}
 
+	public async payBooking(userId: string, bookingId: string): Promise<Booking> {
+		if (!isValidObjectId(userId) || !isValidObjectId(bookingId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const member = await this.memberService.getMember(userId);
+		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const now = new Date();
+		const booking = await this.bookingModel
+			.findOne({
+				_id: bookingId,
+				userId: new Types.ObjectId(userId),
+				bookingStatus: BookingStatus.CONFIRMED,
+				paymentStatus: PaymentStatus.UNPAID,
+				selectedDate: { $gt: now },
+			})
+			.lean<BookingDocumentShape>()
+			.exec();
+		if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+		const availableTour = await this.tourModel
+			.exists({
+				_id: booking.tourId,
+				tourStatus: { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT] },
+			})
+			.exec();
+		if (!availableTour) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+
+		try {
+			const paidBooking = await this.bookingModel
+				.findOneAndUpdate(
+					{
+						_id: booking._id,
+						userId: new Types.ObjectId(userId),
+						bookingStatus: BookingStatus.CONFIRMED,
+						paymentStatus: PaymentStatus.UNPAID,
+						selectedDate: { $gt: new Date() },
+					},
+					{
+						$set: {
+							paymentStatus: PaymentStatus.PAID,
+							paymentReference: this.generatePaymentReference(),
+							paidAt: new Date(),
+						},
+					},
+					{ new: true, runValidators: true },
+				)
+				.lean<Booking>()
+				.exec();
+
+			if (!paidBooking) throw new ConflictException(Message.UPDATE_FAILED);
+			return paidBooking;
+		} catch (error: unknown) {
+			if (
+				error instanceof BadRequestException ||
+				error instanceof ConflictException ||
+				error instanceof NotFoundException
+			) {
+				throw error;
+			}
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		}
+	}
+
 	private async aggregateBookings(
 		match: Record<string, unknown>,
 		input: MyBookingsInquiry | AgentBookingsInquiry | AllBookingsInquiry,
@@ -504,6 +572,10 @@ export class BookingService {
 
 	private generateBookingCode(): string {
 		return `TL-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`.toUpperCase();
+	}
+
+	private generatePaymentReference(): string {
+		return `PAY-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`.toUpperCase();
 	}
 
 	private isDuplicateKeyError(error: unknown): boolean {

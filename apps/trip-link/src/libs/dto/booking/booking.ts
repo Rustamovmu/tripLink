@@ -43,6 +43,12 @@ export class Booking {
 	paymentStatus!: PaymentStatus;
 
 	@Field(() => String, { nullable: true })
+	paymentReference?: string;
+
+	@Field(() => Date, { nullable: true })
+	paidAt?: Date;
+
+	@Field(() => String, { nullable: true })
 	cancellationReason?: string;
 
 	@Field(() => Date, { nullable: true })
