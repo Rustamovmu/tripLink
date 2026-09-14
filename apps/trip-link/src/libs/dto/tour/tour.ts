@@ -139,6 +139,15 @@ export class Tour {
 }
 
 @ObjectType()
+export class FavoriteToggleResult {
+	@Field(() => Tour)
+	tour!: Tour;
+
+	@Field(() => Boolean)
+	favorited!: boolean;
+}
+
+@ObjectType()
 export class Tours {
 	@Field(() => [Tour])
 	list!: Tour[];

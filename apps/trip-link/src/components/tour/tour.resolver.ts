@@ -1,7 +1,7 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { AgentToursInquiry, AllToursInquiry, TourInput, ToursInquiry } from '../../libs/dto/tour/tour.input';
-import { Tour, Tours } from '../../libs/dto/tour/tour';
+import { FavoriteToggleResult, Tour, Tours } from '../../libs/dto/tour/tour';
 import { TourAdminUpdate, TourUpdate } from '../../libs/dto/tour/tour.update';
 import { MemberType } from '../../libs/enums/member.enum';
 import { AuthMember } from '../auth/decorators/auth-member.decorator';
@@ -56,5 +56,15 @@ export class TourResolver {
 	@Mutation(() => Tour)
 	public updateTourByAdmin(@Args('input') input: TourAdminUpdate): Promise<Tour> {
 		return this.tourService.updateTourByAdmin(input);
+	}
+
+	@Roles(MemberType.USER)
+	@UseGuards(RolesGuard)
+	@Mutation(() => FavoriteToggleResult)
+	public toggleFavoriteTour(
+		@Args('tourId') tourId: string,
+		@AuthMember('sub') memberId: string,
+	): Promise<FavoriteToggleResult> {
+		return this.tourService.toggleFavoriteTour(memberId, tourId);
 	}
 }

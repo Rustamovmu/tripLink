@@ -9,11 +9,12 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
 import { AgentToursInquiry, AllToursInquiry, TourInput, ToursInquiry } from '../../libs/dto/tour/tour.input';
-import { Tour, Tours } from '../../libs/dto/tour/tour';
+import { FavoriteToggleResult, Tour, Tours } from '../../libs/dto/tour/tour';
 import { TourAdminUpdate, TourUpdate } from '../../libs/dto/tour/tour.update';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { TourStatus } from '../../libs/enums/tour.enum';
+import { FavoriteService } from '../favorite/favorite.service';
 import { MemberService } from '../member/member.service';
 
 type TourDocumentShape = Tour & { __v?: number };
@@ -23,6 +24,7 @@ const PUBLIC_TOUR_STATUSES = [TourStatus.ACTIVE, TourStatus.SOLD_OUT];
 export class TourService {
 	constructor(
 		@InjectModel('Tour') private readonly tourModel: Model<TourDocumentShape>,
+		private readonly favoriteService: FavoriteService,
 		private readonly memberService: MemberService,
 	) {}
 
@@ -195,6 +197,46 @@ export class TourService {
 			return updatedTour;
 		} catch (error: unknown) {
 			this.rethrowUpdateError(error);
+		}
+	}
+
+	public async toggleFavoriteTour(memberId: string, tourId: string): Promise<FavoriteToggleResult> {
+		if (!isValidObjectId(memberId) || !isValidObjectId(tourId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const member = await this.memberService.getMember(memberId);
+		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const session = await this.tourModel.db.startSession();
+		try {
+			const result = await session.withTransaction(async (): Promise<FavoriteToggleResult> => {
+				const tourExists = await this.tourModel
+					.exists({ _id: tourId, tourStatus: { $in: PUBLIC_TOUR_STATUSES } })
+					.session(session);
+				if (!tourExists) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+				const favorited = await this.favoriteService.toggleFavorite({ memberId, tourId }, session);
+				const tourFavoriteCount = await this.favoriteService.countTourFavorites(tourId, session);
+				const tour = await this.tourModel
+					.findOneAndUpdate(
+						{ _id: tourId, tourStatus: { $in: PUBLIC_TOUR_STATUSES } },
+						{ $set: { tourFavoriteCount } },
+						{ new: true, session, timestamps: false },
+					)
+					.lean<Tour>()
+					.exec();
+
+				if (!tour) throw new ConflictException(Message.UPDATE_FAILED);
+				return { tour, favorited };
+			});
+
+			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
+		} catch (error: unknown) {
+			this.rethrowUpdateError(error);
+		} finally {
+			await session.endSession();
 		}
 	}
 
