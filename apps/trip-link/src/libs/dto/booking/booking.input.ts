@@ -88,3 +88,51 @@ export class MyBookingsInquiry {
 	@Field(() => BookingSearch)
 	search!: BookingSearch;
 }
+
+@InputType()
+export class AgentBookingSearch {
+	@IsOptional()
+	@IsEnum(BookingStatus)
+	@Field(() => BookingStatus, { nullable: true })
+	bookingStatus?: BookingStatus;
+
+	@IsOptional()
+	@IsEnum(PaymentStatus)
+	@Field(() => PaymentStatus, { nullable: true })
+	paymentStatus?: PaymentStatus;
+
+	@IsOptional()
+	@IsMongoId()
+	@Field(() => String, { nullable: true })
+	tourId?: string;
+}
+
+@InputType()
+export class AgentBookingsInquiry {
+	@IsInt()
+	@Min(1)
+	@Field(() => Int)
+	page!: number;
+
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	@Field(() => Int)
+	limit!: number;
+
+	@IsOptional()
+	@IsIn(availableBookingSorts)
+	@Field(() => String, { nullable: true })
+	sort?: (typeof availableBookingSorts)[number];
+
+	@IsOptional()
+	@IsEnum(Direction)
+	@Field(() => Direction, { nullable: true })
+	direction?: Direction;
+
+	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => AgentBookingSearch)
+	@Field(() => AgentBookingSearch)
+	search!: AgentBookingSearch;
+}

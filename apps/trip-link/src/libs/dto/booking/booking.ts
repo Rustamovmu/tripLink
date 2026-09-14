@@ -62,6 +62,9 @@ export class Booking {
 
 	@Field(() => Member, { nullable: true })
 	agentData?: Member;
+
+	@Field(() => Member, { nullable: true })
+	userData?: Member;
 }
 
 @ObjectType()

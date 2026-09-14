@@ -1,4 +1,4 @@
- import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
 	BadRequestException,
 	ConflictException,
@@ -9,7 +9,12 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, Types } from 'mongoose';
-import { BookingCancellationInput, BookingInput, MyBookingsInquiry } from '../../libs/dto/booking/booking.input';
+import {
+	AgentBookingsInquiry,
+	BookingCancellationInput,
+	BookingInput,
+	MyBookingsInquiry,
+} from '../../libs/dto/booking/booking.input';
 import { Booking, Bookings } from '../../libs/dto/booking/booking';
 import { Tour } from '../../libs/dto/tour/tour';
 import { BookingStatus, PaymentStatus } from '../../libs/enums/booking.enum';
@@ -355,7 +360,30 @@ export class BookingService {
 		const match: Record<string, unknown> = { userId: new Types.ObjectId(userId) };
 		if (input.search.bookingStatus) match.bookingStatus = input.search.bookingStatus;
 		if (input.search.paymentStatus) match.paymentStatus = input.search.paymentStatus;
+		return this.aggregateBookings(match, input, 'agentId', 'agentData');
+	}
 
+	public async getAgentBookings(agentId: string, input: AgentBookingsInquiry): Promise<Bookings> {
+		if (!isValidObjectId(agentId) || (input.search.tourId && !isValidObjectId(input.search.tourId))) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const member = await this.memberService.getMember(agentId);
+		if (member.memberType !== MemberType.AGENT) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const match: Record<string, unknown> = { agentId: new Types.ObjectId(agentId) };
+		if (input.search.bookingStatus) match.bookingStatus = input.search.bookingStatus;
+		if (input.search.paymentStatus) match.paymentStatus = input.search.paymentStatus;
+		if (input.search.tourId) match.tourId = new Types.ObjectId(input.search.tourId);
+		return this.aggregateBookings(match, input, 'userId', 'userData');
+	}
+
+	private async aggregateBookings(
+		match: Record<string, unknown>,
+		input: MyBookingsInquiry | AgentBookingsInquiry,
+		memberLocalField: 'agentId' | 'userId',
+		memberDataField: 'agentData' | 'userData',
+	): Promise<Bookings> {
 		const sortField = input.sort ?? 'createdAt';
 		const sortDirection = input.direction ?? Direction.DESC;
 		const [result] = await this.bookingModel
@@ -379,19 +407,19 @@ export class BookingService {
 							{
 								$lookup: {
 									from: 'members',
-									localField: 'agentId',
+									localField: memberLocalField,
 									foreignField: '_id',
-									as: 'agentData',
+									as: memberDataField,
 								},
 							},
-							{ $unwind: { path: '$agentData', preserveNullAndEmptyArrays: true } },
+							{ $unwind: { path: `$${memberDataField}`, preserveNullAndEmptyArrays: true } },
 							{
 								$unset: [
-									'agentData.memberPassword',
-									'agentData.memberEmail',
-									'agentData.memberPhone',
-									'agentData.memberPhoneCountryCode',
-									'agentData.memberAddress',
+									`${memberDataField}.memberPassword`,
+									`${memberDataField}.memberEmail`,
+									`${memberDataField}.memberPhone`,
+									`${memberDataField}.memberPhoneCountryCode`,
+									`${memberDataField}.memberAddress`,
 								],
 							},
 						],
