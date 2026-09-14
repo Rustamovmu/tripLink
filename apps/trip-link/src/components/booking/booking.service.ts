@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+ import { randomUUID } from 'node:crypto';
 import {
 	BadRequestException,
 	ConflictException,
@@ -9,11 +9,11 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, Types } from 'mongoose';
-import { BookingCancellationInput, BookingInput } from '../../libs/dto/booking/booking.input';
-import { Booking } from '../../libs/dto/booking/booking';
+import { BookingCancellationInput, BookingInput, MyBookingsInquiry } from '../../libs/dto/booking/booking.input';
+import { Booking, Bookings } from '../../libs/dto/booking/booking';
 import { Tour } from '../../libs/dto/tour/tour';
 import { BookingStatus, PaymentStatus } from '../../libs/enums/booking.enum';
-import { Message } from '../../libs/enums/common.enum';
+import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { TourStatus } from '../../libs/enums/tour.enum';
 import { MemberService } from '../member/member.service';
@@ -344,6 +344,64 @@ export class BookingService {
 		} finally {
 			await session.endSession();
 		}
+	}
+
+	public async getMyBookings(userId: string, input: MyBookingsInquiry): Promise<Bookings> {
+		if (!isValidObjectId(userId)) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const member = await this.memberService.getMember(userId);
+		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const match: Record<string, unknown> = { userId: new Types.ObjectId(userId) };
+		if (input.search.bookingStatus) match.bookingStatus = input.search.bookingStatus;
+		if (input.search.paymentStatus) match.paymentStatus = input.search.paymentStatus;
+
+		const sortField = input.sort ?? 'createdAt';
+		const sortDirection = input.direction ?? Direction.DESC;
+		const [result] = await this.bookingModel
+			.aggregate<Bookings>([
+				{ $match: match },
+				{ $sort: { [sortField]: sortDirection } },
+				{
+					$facet: {
+						list: [
+							{ $skip: (input.page - 1) * input.limit },
+							{ $limit: input.limit },
+							{
+								$lookup: {
+									from: 'tours',
+									localField: 'tourId',
+									foreignField: '_id',
+									as: 'tourData',
+								},
+							},
+							{ $unwind: { path: '$tourData', preserveNullAndEmptyArrays: true } },
+							{
+								$lookup: {
+									from: 'members',
+									localField: 'agentId',
+									foreignField: '_id',
+									as: 'agentData',
+								},
+							},
+							{ $unwind: { path: '$agentData', preserveNullAndEmptyArrays: true } },
+							{
+								$unset: [
+									'agentData.memberPassword',
+									'agentData.memberEmail',
+									'agentData.memberPhone',
+									'agentData.memberPhoneCountryCode',
+									'agentData.memberAddress',
+								],
+							},
+						],
+						metaCounter: [{ $count: 'total' }],
+					},
+				},
+			])
+			.exec();
+
+		return result ?? { list: [], metaCounter: [] };
 	}
 
 	private generateBookingCode(): string {

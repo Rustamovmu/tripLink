@@ -31,6 +31,8 @@ export const availableTourSorts = [
 	'tourFavoriteCount',
 ] as const;
 
+export const availableBookingSorts = ['createdAt', 'updatedAt', 'selectedDate', 'totalPrice'] as const;
+
 /** IMAGE CONFIGURATION **/
 
 export const uploadTargets = ['member', 'tour', 'article'] as const;
