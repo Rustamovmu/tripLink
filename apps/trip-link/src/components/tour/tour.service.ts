@@ -20,8 +20,10 @@ import { TourAdminUpdate, TourUpdate } from '../../libs/dto/tour/tour.update';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { TourStatus } from '../../libs/enums/tour.enum';
+import { ViewGroup } from '../../libs/enums/view.enum';
 import { FavoriteService } from '../favorite/favorite.service';
 import { MemberService } from '../member/member.service';
+import { ViewService } from '../view/view.service';
 
 type TourDocumentShape = Tour & { __v?: number };
 const PUBLIC_TOUR_STATUSES = [TourStatus.ACTIVE, TourStatus.SOLD_OUT];
@@ -32,6 +34,7 @@ export class TourService {
 		@InjectModel('Tour') private readonly tourModel: Model<TourDocumentShape>,
 		private readonly favoriteService: FavoriteService,
 		private readonly memberService: MemberService,
+		private readonly viewService: ViewService,
 	) {}
 
 	public async createTour(agentId: string, input: TourInput): Promise<Tour> {
@@ -63,7 +66,7 @@ export class TourService {
 		}
 	}
 
-	public async getTour(tourId: string): Promise<Tour> {
+	public async getTour(tourId: string, viewerId: string | null = null): Promise<Tour> {
 		if (!isValidObjectId(tourId)) throw new BadRequestException(Message.BAD_REQUEST);
 
 		const [tour] = await this.tourModel
@@ -80,7 +83,41 @@ export class TourService {
 			.exec();
 
 		if (!tour) throw new NotFoundException(Message.NO_DATA_FOUND);
+		if (viewerId) tour.tourViewCount = await this.recordTourView(viewerId, tourId, tour.tourViewCount);
 		return tour;
+	}
+
+	private async recordTourView(viewerId: string, tourId: string, currentViewCount: number): Promise<number> {
+		const session = await this.tourModel.db.startSession();
+		try {
+			const result = await session.withTransaction(async (): Promise<number> => {
+				const recorded = await this.viewService.recordView(
+					{ memberId: viewerId, viewRefId: tourId, viewGroup: ViewGroup.TOUR },
+					session,
+				);
+				if (!recorded) return currentViewCount;
+
+				const tourViewCount = await this.viewService.countTargetViews(tourId, ViewGroup.TOUR, session);
+				const updatedTour = await this.tourModel
+					.findOneAndUpdate(
+						{ _id: tourId, tourStatus: { $in: PUBLIC_TOUR_STATUSES } },
+						{ $set: { tourViewCount } },
+						{ new: true, session, timestamps: false },
+					)
+					.lean<Tour>()
+					.exec();
+				if (!updatedTour) throw new ConflictException(Message.UPDATE_FAILED);
+
+				return updatedTour.tourViewCount;
+			});
+
+			if (result === undefined) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
+		} catch (error: unknown) {
+			this.rethrowUpdateError(error);
+		} finally {
+			await session.endSession();
+		}
 	}
 
 	public async updateTour(agentId: string, input: TourUpdate): Promise<Tour> {

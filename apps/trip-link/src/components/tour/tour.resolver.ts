@@ -12,7 +12,9 @@ import { TourAdminUpdate, TourUpdate } from '../../libs/dto/tour/tour.update';
 import { MemberType } from '../../libs/enums/member.enum';
 import { AuthMember } from '../auth/decorators/auth-member.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import type { AuthTokenPayload } from '../auth/auth.service';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { WithoutGuard } from '../auth/guards/without.guard';
 import { TourService } from './tour.service';
 
 @Resolver()
@@ -26,9 +28,11 @@ export class TourResolver {
 		return this.tourService.createTour(agentId, input);
 	}
 
+	@UseGuards(WithoutGuard)
 	@Query(() => Tour)
-	public getTour(@Args('tourId') tourId: string): Promise<Tour> {
-		return this.tourService.getTour(tourId);
+	public getTour(@Args('tourId') tourId: string, @AuthMember() authMember: AuthTokenPayload | null): Promise<Tour> {
+		const viewerId = authMember?.memberType === MemberType.USER ? authMember.sub : null;
+		return this.tourService.getTour(tourId, viewerId);
 	}
 
 	@Roles(MemberType.AGENT)
