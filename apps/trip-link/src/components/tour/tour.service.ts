@@ -8,7 +8,13 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
-import { AgentToursInquiry, AllToursInquiry, TourInput, ToursInquiry } from '../../libs/dto/tour/tour.input';
+import {
+	AgentToursInquiry,
+	AllToursInquiry,
+	FavoriteToursInquiry,
+	TourInput,
+	ToursInquiry,
+} from '../../libs/dto/tour/tour.input';
 import { FavoriteToggleResult, Tour, Tours } from '../../libs/dto/tour/tour';
 import { TourAdminUpdate, TourUpdate } from '../../libs/dto/tour/tour.update';
 import { Direction, Message } from '../../libs/enums/common.enum';
@@ -238,6 +244,15 @@ export class TourService {
 		} finally {
 			await session.endSession();
 		}
+	}
+
+	public async getFavoriteTours(memberId: string, input: FavoriteToursInquiry): Promise<Tours> {
+		if (!isValidObjectId(memberId)) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const member = await this.memberService.getMember(memberId);
+		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		return this.favoriteService.getFavoriteTours(memberId, input);
 	}
 
 	private async aggregateTours(

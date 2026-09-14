@@ -447,3 +447,17 @@ export class AllToursInquiry {
 	@Field(() => AdminTourSearch)
 	search!: AdminTourSearch;
 }
+
+@InputType()
+export class FavoriteToursInquiry {
+	@IsInt()
+	@Min(1)
+	@Field(() => Int)
+	page!: number;
+
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	@Field(() => Int)
+	limit!: number;
+}
