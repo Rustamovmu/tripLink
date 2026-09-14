@@ -11,6 +11,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, Types } from 'mongoose';
 import {
 	AgentBookingsInquiry,
+	AllBookingsInquiry,
 	BookingCancellationInput,
 	BookingInput,
 	BookingRejectionInput,
@@ -361,7 +362,7 @@ export class BookingService {
 		const match: Record<string, unknown> = { userId: new Types.ObjectId(userId) };
 		if (input.search.bookingStatus) match.bookingStatus = input.search.bookingStatus;
 		if (input.search.paymentStatus) match.paymentStatus = input.search.paymentStatus;
-		return this.aggregateBookings(match, input, 'agentId', 'agentData');
+		return this.aggregateBookings(match, input, [{ localField: 'agentId', dataField: 'agentData' }]);
 	}
 
 	public async getAgentBookings(agentId: string, input: AgentBookingsInquiry): Promise<Bookings> {
@@ -376,7 +377,7 @@ export class BookingService {
 		if (input.search.bookingStatus) match.bookingStatus = input.search.bookingStatus;
 		if (input.search.paymentStatus) match.paymentStatus = input.search.paymentStatus;
 		if (input.search.tourId) match.tourId = new Types.ObjectId(input.search.tourId);
-		return this.aggregateBookings(match, input, 'userId', 'userData');
+		return this.aggregateBookings(match, input, [{ localField: 'userId', dataField: 'userData' }]);
 	}
 
 	public async rejectBooking(agentId: string, input: BookingRejectionInput): Promise<Booking> {
@@ -421,14 +422,57 @@ export class BookingService {
 		}
 	}
 
+	public async getAllBookingsByAdmin(input: AllBookingsInquiry): Promise<Bookings> {
+		const identifierFilters = [input.search.userId, input.search.agentId, input.search.tourId].filter(
+			(identifier): identifier is string => identifier !== undefined,
+		);
+		if (identifierFilters.some((identifier) => !isValidObjectId(identifier))) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const match: Record<string, unknown> = {};
+		if (input.search.bookingStatus) match.bookingStatus = input.search.bookingStatus;
+		if (input.search.paymentStatus) match.paymentStatus = input.search.paymentStatus;
+		if (input.search.userId) match.userId = new Types.ObjectId(input.search.userId);
+		if (input.search.agentId) match.agentId = new Types.ObjectId(input.search.agentId);
+		if (input.search.tourId) match.tourId = new Types.ObjectId(input.search.tourId);
+
+		return this.aggregateBookings(match, input, [
+			{ localField: 'userId', dataField: 'userData' },
+			{ localField: 'agentId', dataField: 'agentData' },
+		]);
+	}
+
 	private async aggregateBookings(
 		match: Record<string, unknown>,
-		input: MyBookingsInquiry | AgentBookingsInquiry,
-		memberLocalField: 'agentId' | 'userId',
-		memberDataField: 'agentData' | 'userData',
+		input: MyBookingsInquiry | AgentBookingsInquiry | AllBookingsInquiry,
+		memberLookups: Array<{
+			localField: 'agentId' | 'userId';
+			dataField: 'agentData' | 'userData';
+		}>,
 	): Promise<Bookings> {
 		const sortField = input.sort ?? 'createdAt';
 		const sortDirection = input.direction ?? Direction.DESC;
+		const memberStages = memberLookups.flatMap(({ localField, dataField }) => [
+			{
+				$lookup: {
+					from: 'members',
+					localField,
+					foreignField: '_id',
+					as: dataField,
+				},
+			},
+			{ $unwind: { path: `$${dataField}`, preserveNullAndEmptyArrays: true } },
+			{
+				$unset: [
+					`${dataField}.memberPassword`,
+					`${dataField}.memberEmail`,
+					`${dataField}.memberPhone`,
+					`${dataField}.memberPhoneCountryCode`,
+					`${dataField}.memberAddress`,
+				],
+			},
+		]);
 		const [result] = await this.bookingModel
 			.aggregate<Bookings>([
 				{ $match: match },
@@ -447,24 +491,7 @@ export class BookingService {
 								},
 							},
 							{ $unwind: { path: '$tourData', preserveNullAndEmptyArrays: true } },
-							{
-								$lookup: {
-									from: 'members',
-									localField: memberLocalField,
-									foreignField: '_id',
-									as: memberDataField,
-								},
-							},
-							{ $unwind: { path: `$${memberDataField}`, preserveNullAndEmptyArrays: true } },
-							{
-								$unset: [
-									`${memberDataField}.memberPassword`,
-									`${memberDataField}.memberEmail`,
-									`${memberDataField}.memberPhone`,
-									`${memberDataField}.memberPhoneCountryCode`,
-									`${memberDataField}.memberAddress`,
-								],
-							},
+							...memberStages,
 						],
 						metaCounter: [{ $count: 'total' }],
 					},

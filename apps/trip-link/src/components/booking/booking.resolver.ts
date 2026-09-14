@@ -2,6 +2,7 @@ import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import {
 	AgentBookingsInquiry,
+	AllBookingsInquiry,
 	BookingCancellationInput,
 	BookingInput,
 	BookingRejectionInput,
@@ -67,5 +68,12 @@ export class BookingResolver {
 		@AuthMember('sub') agentId: string,
 	): Promise<Booking> {
 		return this.bookingService.rejectBooking(agentId, input);
+	}
+
+	@Roles(MemberType.ADMIN)
+	@UseGuards(RolesGuard)
+	@Query(() => Bookings)
+	public getAllBookingsByAdmin(@Args('input') input: AllBookingsInquiry): Promise<Bookings> {
+		return this.bookingService.getAllBookingsByAdmin(input);
 	}
 }
