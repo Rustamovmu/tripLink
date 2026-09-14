@@ -8,10 +8,10 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
-import { TourInput } from '../../libs/dto/tour/tour.input';
-import { Tour } from '../../libs/dto/tour/tour';
+import { TourInput, ToursInquiry } from '../../libs/dto/tour/tour.input';
+import { Tour, Tours } from '../../libs/dto/tour/tour';
 import { TourUpdate } from '../../libs/dto/tour/tour.update';
-import { Message } from '../../libs/enums/common.enum';
+import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { TourStatus } from '../../libs/enums/tour.enum';
 import { MemberService } from '../member/member.service';
@@ -121,6 +121,35 @@ export class TourService {
 		}
 	}
 
+	public async getTours(input: ToursInquiry): Promise<Tours> {
+		const match: Record<string, unknown> = { tourStatus: { $in: PUBLIC_TOUR_STATUSES } };
+		this.shapePublicTourMatch(match, input);
+
+		const sortField = input.sort === 'tourPrice' ? 'effectiveTourPrice' : (input.sort ?? 'createdAt');
+		const sortDirection = input.direction ?? Direction.DESC;
+		const [result] = await this.tourModel
+			.aggregate<Tours>([
+				{ $match: match },
+				{ $addFields: { effectiveTourPrice: { $ifNull: ['$tourDiscountPrice', '$tourPrice'] } } },
+				{ $sort: { [sortField]: sortDirection } },
+				{
+					$facet: {
+						list: [
+							{ $skip: (input.page - 1) * input.limit },
+							{ $limit: input.limit },
+							this.agentLookup(),
+							{ $unwind: { path: '$agentData', preserveNullAndEmptyArrays: true } },
+							{ $unset: 'effectiveTourPrice' },
+						],
+						metaCounter: [{ $count: 'total' }],
+					},
+				},
+			])
+			.exec();
+
+		return result ?? { list: [], metaCounter: [] };
+	}
+
 	private validateTourBusinessRules(input: TourInput, requirePublishable = false): void {
 		if (input.tourDiscountPrice !== undefined && input.tourDiscountPrice > input.tourPrice) {
 			throw new BadRequestException(Message.BAD_REQUEST);
@@ -217,6 +246,53 @@ export class TourService {
 		if (!allowedTransitions[currentStatus]?.includes(requestedStatus)) {
 			throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
 		}
+	}
+
+	private shapePublicTourMatch(match: Record<string, unknown>, input: ToursInquiry): void {
+		const search = input.search;
+		if (search.agentId) match.agentId = new Types.ObjectId(search.agentId);
+		if (search.destinations?.length) match.tourDestination = { $in: search.destinations };
+		if (search.countries?.length) match.tourCountry = { $in: search.countries };
+		if (search.cities?.length) match.tourCity = { $in: search.cities };
+		if (search.categories?.length) match.tourCategory = { $in: search.categories };
+		if (search.difficulties?.length) match.tourDifficulty = { $in: search.difficulties };
+
+		if (search.priceRange) {
+			this.validateRange(search.priceRange.start, search.priceRange.end);
+			match.$expr = {
+				$and: [
+					{ $gte: [{ $ifNull: ['$tourDiscountPrice', '$tourPrice'] }, search.priceRange.start] },
+					{ $lte: [{ $ifNull: ['$tourDiscountPrice', '$tourPrice'] }, search.priceRange.end] },
+				],
+			};
+		}
+
+		if (search.durationRange) {
+			this.validateRange(search.durationRange.start, search.durationRange.end);
+			match.tourDurationDays = { $gte: search.durationRange.start, $lte: search.durationRange.end };
+		}
+
+		if (search.availableDateRange) {
+			this.validateRange(search.availableDateRange.start.getTime(), search.availableDateRange.end.getTime());
+			const availableDateMatch: Record<string, unknown> = {
+				startDate: { $lte: search.availableDateRange.end },
+				endDate: { $gte: search.availableDateRange.start },
+			};
+			if (search.minimumAvailableSeats !== undefined) {
+				availableDateMatch.availableSeats = { $gte: search.minimumAvailableSeats };
+			}
+			match.tourAvailableDates = { $elemMatch: availableDateMatch };
+		} else if (search.minimumAvailableSeats !== undefined) {
+			match.tourAvailableSeats = { $gte: search.minimumAvailableSeats };
+		}
+
+		if (search.minimumRating !== undefined) match.tourAverageRating = { $gte: search.minimumRating };
+		if (search.featured !== undefined) match.tourFeatured = search.featured;
+		if (search.text?.trim()) match.$text = { $search: search.text.trim() };
+	}
+
+	private validateRange(start: number, end: number): void {
+		if (start > end) throw new BadRequestException(Message.BAD_REQUEST);
 	}
 
 	private slugify(value: string): string {

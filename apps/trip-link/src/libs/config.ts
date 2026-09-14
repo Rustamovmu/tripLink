@@ -20,6 +20,17 @@ export const availableMemberSorts = [
 	'memberWarnings',
 ] as const;
 
+export const availableTourSorts = [
+	'createdAt',
+	'updatedAt',
+	'tourPrice',
+	'tourDurationDays',
+	'tourAverageRating',
+	'tourBookingCount',
+	'tourViewCount',
+	'tourFavoriteCount',
+] as const;
+
 /** IMAGE CONFIGURATION **/
 
 export const uploadTargets = ['member', 'tour', 'article'] as const;
