@@ -6,6 +6,7 @@ import {
 	BookingCancellationInput,
 	BookingInput,
 	BookingRejectionInput,
+	BookingRefundInput,
 	MyBookingsInquiry,
 } from '../../libs/dto/booking/booking.input';
 import { Booking, Bookings } from '../../libs/dto/booking/booking';
@@ -82,5 +83,12 @@ export class BookingResolver {
 	@Mutation(() => Booking)
 	public payBooking(@Args('bookingId') bookingId: string, @AuthMember('sub') userId: string): Promise<Booking> {
 		return this.bookingService.payBooking(userId, bookingId);
+	}
+
+	@Roles(MemberType.ADMIN)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Booking)
+	public refundBookingByAdmin(@Args('input') input: BookingRefundInput): Promise<Booking> {
+		return this.bookingService.refundBookingByAdmin(input);
 	}
 }

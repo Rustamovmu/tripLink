@@ -49,6 +49,15 @@ export class Booking {
 	paidAt?: Date;
 
 	@Field(() => String, { nullable: true })
+	refundReference?: string;
+
+	@Field(() => String, { nullable: true })
+	refundReason?: string;
+
+	@Field(() => Date, { nullable: true })
+	refundedAt?: Date;
+
+	@Field(() => String, { nullable: true })
 	cancellationReason?: string;
 
 	@Field(() => Date, { nullable: true })

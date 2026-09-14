@@ -15,6 +15,7 @@ import {
 	BookingCancellationInput,
 	BookingInput,
 	BookingRejectionInput,
+	BookingRefundInput,
 	MyBookingsInquiry,
 } from '../../libs/dto/booking/booking.input';
 import { Booking, Bookings } from '../../libs/dto/booking/booking';
@@ -511,6 +512,109 @@ export class BookingService {
 		}
 	}
 
+	public async refundBookingByAdmin(input: BookingRefundInput): Promise<Booking> {
+		if (!isValidObjectId(input.bookingId)) throw new BadRequestException(Message.BAD_REQUEST);
+		const refundReason = input.refundReason.trim();
+		if (refundReason.length < 3) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const session = await this.bookingModel.db.startSession();
+		try {
+			const result = await session.withTransaction(async (): Promise<Booking> => {
+				const booking = await this.bookingModel
+					.findOne({
+						_id: input.bookingId,
+						bookingStatus: BookingStatus.CONFIRMED,
+						paymentStatus: PaymentStatus.PAID,
+						selectedDate: { $gt: new Date() },
+					})
+					.session(session)
+					.lean<BookingDocumentShape>()
+					.exec();
+				if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+				const updatedTour = await this.tourModel
+					.findOneAndUpdate(
+						{
+							_id: booking.tourId,
+							tourStatus: { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT, TourStatus.CANCELLED] },
+							tourBookingCount: { $gte: 1 },
+							'tourAvailableDates._id': booking.tourDateId,
+						},
+						{
+							$inc: {
+								tourAvailableSeats: booking.numberOfPeople,
+								'tourAvailableDates.$[selectedDate].availableSeats': booking.numberOfPeople,
+								tourBookingCount: -1,
+							},
+						},
+						{
+							new: true,
+							runValidators: true,
+							session,
+							arrayFilters: [{ 'selectedDate._id': booking.tourDateId }],
+						},
+					)
+					.lean<TourDocumentShape>()
+					.exec();
+				if (!updatedTour) throw new ConflictException(Message.UPDATE_FAILED);
+
+				if (updatedTour.tourStatus === TourStatus.SOLD_OUT) {
+					await this.tourModel
+						.updateOne(
+							{ _id: booking.tourId, tourStatus: TourStatus.SOLD_OUT },
+							{ $set: { tourStatus: TourStatus.ACTIVE } },
+							{ session },
+						)
+						.exec();
+				}
+
+				const refundedAt = new Date();
+				const refundedBooking = await this.bookingModel
+					.findOneAndUpdate(
+						{
+							_id: booking._id,
+							bookingStatus: BookingStatus.CONFIRMED,
+							paymentStatus: PaymentStatus.PAID,
+						},
+						{
+							$set: {
+								bookingStatus: BookingStatus.CANCELLED,
+								paymentStatus: PaymentStatus.REFUNDED,
+								refundReference: this.generateRefundReference(),
+								refundReason,
+								refundedAt,
+								cancelledAt: refundedAt,
+							},
+						},
+						{ new: true, runValidators: true, session },
+					)
+					.lean<Booking>()
+					.exec();
+				if (!refundedBooking) throw new ConflictException(Message.UPDATE_FAILED);
+
+				return refundedBooking;
+			});
+
+			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
+		} catch (error: unknown) {
+			if (
+				error instanceof BadRequestException ||
+				error instanceof ConflictException ||
+				error instanceof NotFoundException ||
+				error instanceof InternalServerErrorException
+			) {
+				throw error;
+			}
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		} finally {
+			await session.endSession();
+		}
+	}
+
 	private async aggregateBookings(
 		match: Record<string, unknown>,
 		input: MyBookingsInquiry | AgentBookingsInquiry | AllBookingsInquiry,
@@ -576,6 +680,10 @@ export class BookingService {
 
 	private generatePaymentReference(): string {
 		return `PAY-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`.toUpperCase();
+	}
+
+	private generateRefundReference(): string {
+		return `REF-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`.toUpperCase();
 	}
 
 	private isDuplicateKeyError(error: unknown): boolean {

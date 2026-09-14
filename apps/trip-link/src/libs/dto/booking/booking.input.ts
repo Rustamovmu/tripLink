@@ -59,6 +59,18 @@ export class BookingRejectionInput {
 }
 
 @InputType()
+export class BookingRefundInput {
+	@IsMongoId()
+	@Field(() => String)
+	bookingId!: string;
+
+	@IsString()
+	@Length(3, 500)
+	@Field(() => String)
+	refundReason!: string;
+}
+
+@InputType()
 export class BookingSearch {
 	@IsOptional()
 	@IsEnum(BookingStatus)
