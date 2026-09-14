@@ -48,6 +48,12 @@ export class Booking {
 	@Field(() => Date, { nullable: true })
 	cancelledAt?: Date;
 
+	@Field(() => String, { nullable: true })
+	rejectionReason?: string;
+
+	@Field(() => Date, { nullable: true })
+	rejectedAt?: Date;
+
 	@Field(() => Date, { nullable: true })
 	completedAt?: Date;
 

@@ -13,6 +13,7 @@ import {
 	AgentBookingsInquiry,
 	BookingCancellationInput,
 	BookingInput,
+	BookingRejectionInput,
 	MyBookingsInquiry,
 } from '../../libs/dto/booking/booking.input';
 import { Booking, Bookings } from '../../libs/dto/booking/booking';
@@ -376,6 +377,48 @@ export class BookingService {
 		if (input.search.paymentStatus) match.paymentStatus = input.search.paymentStatus;
 		if (input.search.tourId) match.tourId = new Types.ObjectId(input.search.tourId);
 		return this.aggregateBookings(match, input, 'userId', 'userData');
+	}
+
+	public async rejectBooking(agentId: string, input: BookingRejectionInput): Promise<Booking> {
+		if (!isValidObjectId(agentId) || !isValidObjectId(input.bookingId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+		const rejectionReason = input.rejectionReason.trim();
+		if (rejectionReason.length < 3) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const member = await this.memberService.getMember(agentId);
+		if (member.memberType !== MemberType.AGENT) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		try {
+			const rejectedBooking = await this.bookingModel
+				.findOneAndUpdate(
+					{
+						_id: input.bookingId,
+						agentId: new Types.ObjectId(agentId),
+						bookingStatus: BookingStatus.PENDING,
+						paymentStatus: PaymentStatus.UNPAID,
+					},
+					{
+						$set: {
+							bookingStatus: BookingStatus.REJECTED,
+							rejectionReason,
+							rejectedAt: new Date(),
+						},
+					},
+					{ new: true, runValidators: true },
+				)
+				.lean<Booking>()
+				.exec();
+
+			if (!rejectedBooking) throw new NotFoundException(Message.NO_DATA_FOUND);
+			return rejectedBooking;
+		} catch (error: unknown) {
+			if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		}
 	}
 
 	private async aggregateBookings(

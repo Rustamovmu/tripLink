@@ -16,6 +16,8 @@ const BookingSchema = new Schema(
 		paymentStatus: { type: String, enum: PaymentStatus, default: PaymentStatus.UNPAID },
 		cancellationReason: { type: String, trim: true },
 		cancelledAt: { type: Date },
+		rejectionReason: { type: String, trim: true },
+		rejectedAt: { type: Date },
 		completedAt: { type: Date },
 	},
 	{ timestamps: true, collection: 'bookings' },
