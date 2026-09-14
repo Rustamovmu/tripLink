@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, Types } from 'mongoose';
-import { BookingInput } from '../../libs/dto/booking/booking.input';
+import { BookingCancellationInput, BookingInput } from '../../libs/dto/booking/booking.input';
 import { Booking } from '../../libs/dto/booking/booking';
 import { Tour } from '../../libs/dto/tour/tour';
 import { BookingStatus, PaymentStatus } from '../../libs/enums/booking.enum';
@@ -212,6 +212,117 @@ export class BookingService {
 				if (!confirmedBooking) throw new ConflictException(Message.UPDATE_FAILED);
 
 				return confirmedBooking;
+			});
+
+			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
+		} catch (error: unknown) {
+			if (
+				error instanceof BadRequestException ||
+				error instanceof ConflictException ||
+				error instanceof ForbiddenException ||
+				error instanceof NotFoundException ||
+				error instanceof InternalServerErrorException
+			) {
+				throw error;
+			}
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		} finally {
+			await session.endSession();
+		}
+	}
+
+	public async cancelBooking(userId: string, input: BookingCancellationInput): Promise<Booking> {
+		if (!isValidObjectId(userId) || !isValidObjectId(input.bookingId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+		const cancellationReason = input.cancellationReason.trim();
+		if (cancellationReason.length < 3) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const member = await this.memberService.getMember(userId);
+		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const session = await this.bookingModel.db.startSession();
+		try {
+			const result = await session.withTransaction(async (): Promise<Booking> => {
+				const booking = await this.bookingModel
+					.findOne({
+						_id: input.bookingId,
+						userId: new Types.ObjectId(userId),
+						bookingStatus: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+						paymentStatus: PaymentStatus.UNPAID,
+					})
+					.session(session)
+					.lean<BookingDocumentShape>()
+					.exec();
+				if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
+				if (booking.selectedDate.getTime() <= Date.now()) {
+					throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+				}
+
+				if (booking.bookingStatus === BookingStatus.CONFIRMED) {
+					const updatedTour = await this.tourModel
+						.findOneAndUpdate(
+							{
+								_id: booking.tourId,
+								tourStatus: { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT, TourStatus.CANCELLED] },
+								tourBookingCount: { $gte: 1 },
+								'tourAvailableDates._id': booking.tourDateId,
+							},
+							{
+								$inc: {
+									tourAvailableSeats: booking.numberOfPeople,
+									'tourAvailableDates.$[selectedDate].availableSeats': booking.numberOfPeople,
+									tourBookingCount: -1,
+								},
+							},
+							{
+								new: true,
+								runValidators: true,
+								session,
+								arrayFilters: [{ 'selectedDate._id': booking.tourDateId }],
+							},
+						)
+						.lean<TourDocumentShape>()
+						.exec();
+					if (!updatedTour) throw new ConflictException(Message.UPDATE_FAILED);
+
+					if (updatedTour.tourStatus === TourStatus.SOLD_OUT) {
+						await this.tourModel
+							.updateOne(
+								{ _id: booking.tourId, tourStatus: TourStatus.SOLD_OUT },
+								{ $set: { tourStatus: TourStatus.ACTIVE } },
+								{ session },
+							)
+							.exec();
+					}
+				}
+
+				const cancelledBooking = await this.bookingModel
+					.findOneAndUpdate(
+						{
+							_id: booking._id,
+							userId: new Types.ObjectId(userId),
+							bookingStatus: booking.bookingStatus,
+							paymentStatus: PaymentStatus.UNPAID,
+						},
+						{
+							$set: {
+								bookingStatus: BookingStatus.CANCELLED,
+								cancellationReason,
+								cancelledAt: new Date(),
+							},
+						},
+						{ new: true, runValidators: true, session },
+					)
+					.lean<Booking>()
+					.exec();
+				if (!cancelledBooking) throw new ConflictException(Message.UPDATE_FAILED);
+
+				return cancelledBooking;
 			});
 
 			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);

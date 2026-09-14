@@ -1,5 +1,5 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsInt, IsMongoId, Max, Min } from 'class-validator';
+import { IsInt, IsMongoId, IsString, Length, Max, Min } from 'class-validator';
 
 @InputType()
 export class BookingInput {
@@ -16,4 +16,16 @@ export class BookingInput {
 	@Max(100)
 	@Field(() => Int)
 	numberOfPeople!: number;
+}
+
+@InputType()
+export class BookingCancellationInput {
+	@IsMongoId()
+	@Field(() => String)
+	bookingId!: string;
+
+	@IsString()
+	@Length(3, 500)
+	@Field(() => String)
+	cancellationReason!: string;
 }

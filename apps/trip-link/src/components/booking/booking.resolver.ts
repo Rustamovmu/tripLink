@@ -1,6 +1,6 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Resolver } from '@nestjs/graphql';
-import { BookingInput } from '../../libs/dto/booking/booking.input';
+import { BookingCancellationInput, BookingInput } from '../../libs/dto/booking/booking.input';
 import { Booking } from '../../libs/dto/booking/booking';
 import { MemberType } from '../../libs/enums/member.enum';
 import { AuthMember } from '../auth/decorators/auth-member.decorator';
@@ -24,5 +24,15 @@ export class BookingResolver {
 	@Mutation(() => Booking)
 	public confirmBooking(@Args('bookingId') bookingId: string, @AuthMember('sub') agentId: string): Promise<Booking> {
 		return this.bookingService.confirmBooking(agentId, bookingId);
+	}
+
+	@Roles(MemberType.USER)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Booking)
+	public cancelBooking(
+		@Args('input') input: BookingCancellationInput,
+		@AuthMember('sub') userId: string,
+	): Promise<Booking> {
+		return this.bookingService.cancelBooking(userId, input);
 	}
 }
