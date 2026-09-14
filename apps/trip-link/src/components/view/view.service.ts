@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { ClientSession, isValidObjectId, Model, Types } from 'mongoose';
+import { ClientSession, isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
+import { VisitedToursInquiry } from '../../libs/dto/tour/tour.input';
+import { Tours } from '../../libs/dto/tour/tour';
 import { Message } from '../../libs/enums/common.enum';
+import { TourStatus } from '../../libs/enums/tour.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
 
 export interface ViewInput {
@@ -24,7 +27,12 @@ export class ViewService {
 		this.requireActiveTransaction(session);
 		const search = this.buildSearch(input);
 		const existingView = await this.viewModel.findOne(search).session(session).exec();
-		if (existingView) return false;
+		if (existingView) {
+			await this.viewModel
+				.updateOne({ _id: existingView._id }, { $set: { updatedAt: new Date() } }, { session, timestamps: false })
+				.exec();
+			return false;
+		}
 
 		await this.viewModel.create([search], { session });
 		return true;
@@ -40,6 +48,50 @@ export class ViewService {
 			.countDocuments({ viewRefId: new Types.ObjectId(viewRefId), viewGroup })
 			.session(session)
 			.exec();
+	}
+
+	public async getVisitedTours(memberId: string, input: VisitedToursInquiry): Promise<Tours> {
+		if (!isValidObjectId(memberId)) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const [result] = await this.viewModel
+			.aggregate<Tours>([
+				{
+					$match: {
+						memberId: new Types.ObjectId(memberId),
+						viewGroup: ViewGroup.TOUR,
+					},
+				},
+				{
+					$lookup: {
+						from: 'tours',
+						localField: 'viewRefId',
+						foreignField: '_id',
+						as: 'visitedTour',
+					},
+				},
+				{ $unwind: '$visitedTour' },
+				{
+					$match: {
+						'visitedTour.tourStatus': { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT] },
+					},
+				},
+				{ $sort: { updatedAt: -1 } },
+				{
+					$facet: {
+						list: [
+							{ $skip: (input.page - 1) * input.limit },
+							{ $limit: input.limit },
+							{ $replaceRoot: { newRoot: '$visitedTour' } },
+							this.agentLookup(),
+							{ $unwind: { path: '$agentData', preserveNullAndEmptyArrays: true } },
+						],
+						metaCounter: [{ $count: 'total' }],
+					},
+				},
+			])
+			.exec();
+
+		return result ?? { list: [], metaCounter: [] };
 	}
 
 	private buildSearch(input: ViewInput): ViewRecord {
@@ -60,5 +112,27 @@ export class ViewService {
 
 	private requireActiveTransaction(session: ClientSession): void {
 		if (!session.inTransaction()) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
+	}
+
+	private agentLookup(): PipelineStage.Lookup {
+		return {
+			$lookup: {
+				from: 'members',
+				let: { agentId: '$agentId' },
+				pipeline: [
+					{ $match: { $expr: { $eq: ['$_id', '$$agentId'] } } },
+					{
+						$project: {
+							memberPassword: 0,
+							memberEmail: 0,
+							memberPhone: 0,
+							memberPhoneCountryCode: 0,
+							memberAddress: 0,
+						},
+					},
+				],
+				as: 'agentData',
+			},
+		};
 	}
 }

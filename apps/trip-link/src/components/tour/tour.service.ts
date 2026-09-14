@@ -14,6 +14,7 @@ import {
 	FavoriteToursInquiry,
 	TourInput,
 	ToursInquiry,
+	VisitedToursInquiry,
 } from '../../libs/dto/tour/tour.input';
 import { FavoriteToggleResult, Tour, Tours } from '../../libs/dto/tour/tour';
 import { TourAdminUpdate, TourUpdate } from '../../libs/dto/tour/tour.update';
@@ -290,6 +291,15 @@ export class TourService {
 		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
 
 		return this.favoriteService.getFavoriteTours(memberId, input);
+	}
+
+	public async getVisitedTours(memberId: string, input: VisitedToursInquiry): Promise<Tours> {
+		if (!isValidObjectId(memberId)) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const member = await this.memberService.getMember(memberId);
+		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		return this.viewService.getVisitedTours(memberId, input);
 	}
 
 	private async aggregateTours(

@@ -6,6 +6,7 @@ import {
 	FavoriteToursInquiry,
 	TourInput,
 	ToursInquiry,
+	VisitedToursInquiry,
 } from '../../libs/dto/tour/tour.input';
 import { FavoriteToggleResult, Tour, Tours } from '../../libs/dto/tour/tour';
 import { TourAdminUpdate, TourUpdate } from '../../libs/dto/tour/tour.update';
@@ -86,5 +87,15 @@ export class TourResolver {
 		@AuthMember('sub') memberId: string,
 	): Promise<Tours> {
 		return this.tourService.getFavoriteTours(memberId, input);
+	}
+
+	@Roles(MemberType.USER)
+	@UseGuards(RolesGuard)
+	@Query(() => Tours)
+	public getVisitedTours(
+		@Args('input') input: VisitedToursInquiry,
+		@AuthMember('sub') memberId: string,
+	): Promise<Tours> {
+		return this.tourService.getVisitedTours(memberId, input);
 	}
 }

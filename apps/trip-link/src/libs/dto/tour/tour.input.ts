@@ -461,3 +461,17 @@ export class FavoriteToursInquiry {
 	@Field(() => Int)
 	limit!: number;
 }
+
+@InputType()
+export class VisitedToursInquiry {
+	@IsInt()
+	@Min(1)
+	@Field(() => Int)
+	page!: number;
+
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	@Field(() => Int)
+	limit!: number;
+}
