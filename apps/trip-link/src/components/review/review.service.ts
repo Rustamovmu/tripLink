@@ -8,7 +8,12 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
-import { AllReviewsInquiry, ReviewInput, TourReviewsInquiry } from '../../libs/dto/review/review.input';
+import {
+	AllReviewsInquiry,
+	MyReviewsInquiry,
+	ReviewInput,
+	TourReviewsInquiry,
+} from '../../libs/dto/review/review.input';
 import { ReviewModerationInput } from '../../libs/dto/review/review.moderation';
 import { Review, Reviews } from '../../libs/dto/review/review';
 import { ReviewUpdate } from '../../libs/dto/review/review.update';
@@ -391,9 +396,25 @@ export class ReviewService {
 		return this.aggregateReviews(match, input, ['userData', 'agentData'], true);
 	}
 
+	public async getMyReviews(userId: string, input: MyReviewsInquiry): Promise<Reviews> {
+		if (!isValidObjectId(userId) || (input.search.tourId && !isValidObjectId(input.search.tourId))) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const member = await this.memberService.getMember(userId);
+		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const match: Record<string, unknown> = { userId: new Types.ObjectId(userId) };
+		if (input.search.reviewStatus) match.reviewStatus = input.search.reviewStatus;
+		if (input.search.reviewRating !== undefined) match.reviewRating = input.search.reviewRating;
+		if (input.search.tourId) match.tourId = new Types.ObjectId(input.search.tourId);
+
+		return this.aggregateReviews(match, input, ['agentData'], true);
+	}
+
 	private async aggregateReviews(
 		match: Record<string, unknown>,
-		input: TourReviewsInquiry | AllReviewsInquiry,
+		input: TourReviewsInquiry | AllReviewsInquiry | MyReviewsInquiry,
 		memberDataFields: Array<'userData' | 'agentData'>,
 		includeTour: boolean,
 	): Promise<Reviews> {
