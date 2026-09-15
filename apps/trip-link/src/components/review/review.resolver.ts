@@ -1,6 +1,7 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { ReviewInput, TourReviewsInquiry } from '../../libs/dto/review/review.input';
+import { ReviewModerationInput } from '../../libs/dto/review/review.moderation';
 import { Review, Reviews } from '../../libs/dto/review/review';
 import { ReviewUpdate } from '../../libs/dto/review/review.update';
 import { MemberType } from '../../libs/enums/member.enum';
@@ -39,5 +40,12 @@ export class ReviewResolver {
 	@Mutation(() => Review)
 	public removeReview(@Args('reviewId') reviewId: string, @AuthMember('sub') userId: string): Promise<Review> {
 		return this.reviewService.removeReview(userId, reviewId);
+	}
+
+	@Roles(MemberType.ADMIN)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Review)
+	public moderateReviewByAdmin(@Args('input') input: ReviewModerationInput): Promise<Review> {
+		return this.reviewService.moderateReviewByAdmin(input);
 	}
 }

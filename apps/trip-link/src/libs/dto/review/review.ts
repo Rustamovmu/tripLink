@@ -29,6 +29,12 @@ export class Review {
 	@Field(() => ReviewStatus)
 	reviewStatus!: ReviewStatus;
 
+	@Field(() => String, { nullable: true })
+	moderationReason?: string;
+
+	@Field(() => Date, { nullable: true })
+	moderatedAt?: Date;
+
 	@Field(() => Date, { nullable: true })
 	deletedAt?: Date;
 

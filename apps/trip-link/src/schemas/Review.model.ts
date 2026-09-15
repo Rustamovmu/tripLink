@@ -10,6 +10,8 @@ const ReviewSchema = new Schema(
 		reviewRating: { type: Number, required: true, min: 1, max: 5 },
 		reviewComment: { type: String, required: true, trim: true, minlength: 3, maxlength: 2000 },
 		reviewStatus: { type: String, enum: ReviewStatus, default: ReviewStatus.ACTIVE },
+		moderationReason: { type: String, trim: true, maxlength: 500 },
+		moderatedAt: { type: Date },
 		deletedAt: { type: Date },
 	},
 	{ timestamps: true, collection: 'reviews' },

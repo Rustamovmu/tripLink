@@ -9,6 +9,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, isValidObjectId, Model, Types } from 'mongoose';
 import { ReviewInput, TourReviewsInquiry } from '../../libs/dto/review/review.input';
+import { ReviewModerationInput } from '../../libs/dto/review/review.moderation';
 import { Review, Reviews } from '../../libs/dto/review/review';
 import { ReviewUpdate } from '../../libs/dto/review/review.update';
 import { BookingStatus, PaymentStatus } from '../../libs/enums/booking.enum';
@@ -327,6 +328,79 @@ export class ReviewService {
 				throw new BadRequestException(Message.BAD_REQUEST);
 			}
 			throw new InternalServerErrorException(Message.REMOVE_FAILED);
+		} finally {
+			await session.endSession();
+		}
+	}
+
+	public async moderateReviewByAdmin(input: ReviewModerationInput): Promise<Review> {
+		if (!isValidObjectId(input.reviewId)) throw new BadRequestException(Message.BAD_REQUEST);
+		if (![ReviewStatus.ACTIVE, ReviewStatus.HIDDEN].includes(input.reviewStatus)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+		const moderationReason = input.moderationReason.trim();
+		if (moderationReason.length < 3) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const session = await this.reviewModel.db.startSession();
+		try {
+			const result = await session.withTransaction(async (): Promise<Review> => {
+				const existingReview = await this.reviewModel
+					.findOne({
+						_id: input.reviewId,
+						reviewStatus: { $in: [ReviewStatus.ACTIVE, ReviewStatus.HIDDEN] },
+					})
+					.session(session)
+					.lean<ReviewDocumentShape>()
+					.exec();
+				if (!existingReview) throw new NotFoundException(Message.NO_DATA_FOUND);
+				if (existingReview.reviewStatus === input.reviewStatus) {
+					throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+				}
+
+				const moderatedReview = await this.reviewModel
+					.findOneAndUpdate(
+						{
+							_id: existingReview._id,
+							reviewStatus: existingReview.reviewStatus,
+						},
+						{
+							$set: {
+								reviewStatus: input.reviewStatus,
+								moderationReason,
+								moderatedAt: new Date(),
+							},
+						},
+						{ new: true, runValidators: true, session },
+					)
+					.lean<ReviewDocumentShape>()
+					.exec();
+				if (!moderatedReview) throw new ConflictException(Message.UPDATE_FAILED);
+
+				await this.syncTourReviewStats(moderatedReview.tourId, session);
+				const counterModifier = input.reviewStatus === ReviewStatus.ACTIVE ? 1 : -1;
+				await this.memberService.adjustMemberReviewCountForModeration(
+					moderatedReview.userId.toHexString(),
+					counterModifier,
+					session,
+				);
+				return moderatedReview as unknown as Review;
+			});
+
+			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
+		} catch (error: unknown) {
+			if (
+				error instanceof BadRequestException ||
+				error instanceof ConflictException ||
+				error instanceof NotFoundException ||
+				error instanceof InternalServerErrorException
+			) {
+				throw error;
+			}
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
 		} finally {
 			await session.endSession();
 		}

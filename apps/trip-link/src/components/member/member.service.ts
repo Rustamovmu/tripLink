@@ -286,6 +286,21 @@ export class MemberService {
 		if (result.matchedCount === 0) throw new ConflictException(Message.UPDATE_FAILED);
 	}
 
+	public async adjustMemberReviewCountForModeration(
+		memberId: string,
+		modifier: 1 | -1,
+		session: ClientSession,
+	): Promise<void> {
+		if (!isValidObjectId(memberId)) throw new BadRequestException(Message.BAD_REQUEST);
+		if (!session.inTransaction()) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
+
+		const match: Record<string, unknown> = { _id: memberId, memberType: MemberType.USER };
+		if (modifier === -1) match.memberReviews = { $gte: 1 };
+
+		const result = await this.memberModel.updateOne(match, { $inc: { memberReviews: modifier } }, { session }).exec();
+		if (result.matchedCount === 0) throw new ConflictException(Message.UPDATE_FAILED);
+	}
+
 	public async getAgents(input: AgentsInquiry): Promise<Members> {
 		const match: Record<string, unknown> = {
 			memberType: MemberType.AGENT,
