@@ -1,6 +1,7 @@
 import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import {
+	AgentReviewsInquiry,
 	AllReviewsInquiry,
 	MyReviewsInquiry,
 	ReviewInput,
@@ -66,5 +67,15 @@ export class ReviewResolver {
 	@Query(() => Reviews)
 	public getMyReviews(@Args('input') input: MyReviewsInquiry, @AuthMember('sub') userId: string): Promise<Reviews> {
 		return this.reviewService.getMyReviews(userId, input);
+	}
+
+	@Roles(MemberType.AGENT)
+	@UseGuards(RolesGuard)
+	@Query(() => Reviews)
+	public getAgentReviews(
+		@Args('input') input: AgentReviewsInquiry,
+		@AuthMember('sub') agentId: string,
+	): Promise<Reviews> {
+		return this.reviewService.getAgentReviews(agentId, input);
 	}
 }

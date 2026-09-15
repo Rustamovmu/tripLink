@@ -193,3 +193,48 @@ export class MyReviewsInquiry {
 	@Field(() => MyReviewSearch)
 	search!: MyReviewSearch;
 }
+
+@InputType()
+export class AgentReviewSearch {
+	@IsOptional()
+	@IsInt()
+	@Min(1)
+	@Max(5)
+	@Field(() => Int, { nullable: true })
+	reviewRating?: number;
+
+	@IsOptional()
+	@IsMongoId()
+	@Field(() => String, { nullable: true })
+	tourId?: string;
+}
+
+@InputType()
+export class AgentReviewsInquiry {
+	@IsInt()
+	@Min(1)
+	@Field(() => Int)
+	page!: number;
+
+	@IsInt()
+	@Min(1)
+	@Max(100)
+	@Field(() => Int)
+	limit!: number;
+
+	@IsOptional()
+	@IsIn(availableReviewSorts)
+	@Field(() => String, { nullable: true })
+	sort?: (typeof availableReviewSorts)[number];
+
+	@IsOptional()
+	@IsEnum(Direction)
+	@Field(() => Direction, { nullable: true })
+	direction?: Direction;
+
+	@IsNotEmpty()
+	@ValidateNested()
+	@Type(() => AgentReviewSearch)
+	@Field(() => AgentReviewSearch)
+	search!: AgentReviewSearch;
+}

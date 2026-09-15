@@ -9,6 +9,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
 import {
+	AgentReviewsInquiry,
 	AllReviewsInquiry,
 	MyReviewsInquiry,
 	ReviewInput,
@@ -162,7 +163,7 @@ export class ReviewService {
 
 		const match: Record<string, unknown> = { tourId, reviewStatus: ReviewStatus.ACTIVE };
 		if (input.search.reviewRating !== undefined) match.reviewRating = input.search.reviewRating;
-		return this.aggregateReviews(match, input, ['userData'], false);
+		return this.aggregateReviews(match, input, ['userData'], false, false);
 	}
 
 	public async updateReview(userId: string, input: ReviewUpdate): Promise<Review> {
@@ -393,7 +394,7 @@ export class ReviewService {
 		if (input.search.agentId) match.agentId = new Types.ObjectId(input.search.agentId);
 		if (input.search.tourId) match.tourId = new Types.ObjectId(input.search.tourId);
 
-		return this.aggregateReviews(match, input, ['userData', 'agentData'], true);
+		return this.aggregateReviews(match, input, ['userData', 'agentData'], true, true);
 	}
 
 	public async getMyReviews(userId: string, input: MyReviewsInquiry): Promise<Reviews> {
@@ -409,16 +410,36 @@ export class ReviewService {
 		if (input.search.reviewRating !== undefined) match.reviewRating = input.search.reviewRating;
 		if (input.search.tourId) match.tourId = new Types.ObjectId(input.search.tourId);
 
-		return this.aggregateReviews(match, input, ['agentData'], true);
+		return this.aggregateReviews(match, input, ['agentData'], true, true);
+	}
+
+	public async getAgentReviews(agentId: string, input: AgentReviewsInquiry): Promise<Reviews> {
+		if (!isValidObjectId(agentId) || (input.search.tourId && !isValidObjectId(input.search.tourId))) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const member = await this.memberService.getMember(agentId);
+		if (member.memberType !== MemberType.AGENT) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const match: Record<string, unknown> = {
+			agentId: new Types.ObjectId(agentId),
+			reviewStatus: ReviewStatus.ACTIVE,
+		};
+		if (input.search.reviewRating !== undefined) match.reviewRating = input.search.reviewRating;
+		if (input.search.tourId) match.tourId = new Types.ObjectId(input.search.tourId);
+
+		return this.aggregateReviews(match, input, ['userData'], true, false);
 	}
 
 	private async aggregateReviews(
 		match: Record<string, unknown>,
-		input: TourReviewsInquiry | AllReviewsInquiry | MyReviewsInquiry,
+		input: TourReviewsInquiry | AllReviewsInquiry | MyReviewsInquiry | AgentReviewsInquiry,
 		memberDataFields: Array<'userData' | 'agentData'>,
 		includeTour: boolean,
+		includeModeration: boolean,
 	): Promise<Reviews> {
 		const contextStages: Array<PipelineStage.Lookup | PipelineStage.Unwind | PipelineStage.Unset> = [];
+		if (!includeModeration) contextStages.push({ $unset: ['moderationReason', 'moderatedAt'] });
 		if (includeTour) {
 			contextStages.push(
 				{
