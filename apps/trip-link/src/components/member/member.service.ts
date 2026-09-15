@@ -251,6 +251,21 @@ export class MemberService {
 		if (result.matchedCount === 0) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
 	}
 
+	public async increaseMemberReviewCount(memberId: string, session: ClientSession): Promise<void> {
+		if (!isValidObjectId(memberId)) throw new BadRequestException(Message.BAD_REQUEST);
+		if (!session.inTransaction()) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
+
+		const result = await this.memberModel
+			.updateOne(
+				{ _id: memberId, memberType: MemberType.USER, memberStatus: MemberStatus.ACTIVE },
+				{ $inc: { memberReviews: 1 } },
+				{ session },
+			)
+			.exec();
+
+		if (result.matchedCount === 0) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
+	}
+
 	public async getAgents(input: AgentsInquiry): Promise<Members> {
 		const match: Record<string, unknown> = {
 			memberType: MemberType.AGENT,

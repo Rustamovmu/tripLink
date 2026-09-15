@@ -8,7 +8,7 @@ const ReviewSchema = new Schema(
 		tourId: { type: Schema.Types.ObjectId, required: true, ref: 'Tour' },
 		agentId: { type: Schema.Types.ObjectId, required: true, ref: 'Member' },
 		reviewRating: { type: Number, required: true, min: 1, max: 5 },
-		reviewComment: { type: String, required: true, trim: true },
+		reviewComment: { type: String, required: true, trim: true, minlength: 3, maxlength: 2000 },
 		reviewStatus: { type: String, enum: ReviewStatus, default: ReviewStatus.ACTIVE },
 		deletedAt: { type: Date },
 	},

@@ -1,0 +1,143 @@
+import {
+	BadRequestException,
+	ConflictException,
+	ForbiddenException,
+	Injectable,
+	InternalServerErrorException,
+	NotFoundException,
+} from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { isValidObjectId, Model, Types } from 'mongoose';
+import { ReviewInput } from '../../libs/dto/review/review.input';
+import { Review } from '../../libs/dto/review/review';
+import { BookingStatus, PaymentStatus } from '../../libs/enums/booking.enum';
+import { Message } from '../../libs/enums/common.enum';
+import { MemberType } from '../../libs/enums/member.enum';
+import { ReviewStatus } from '../../libs/enums/review.enum';
+import { MemberService } from '../member/member.service';
+
+type ReviewDocumentShape = Omit<Review, '_id' | 'bookingId' | 'userId' | 'tourId' | 'agentId'> & {
+	_id: Types.ObjectId;
+	bookingId: Types.ObjectId;
+	userId: Types.ObjectId;
+	tourId: Types.ObjectId;
+	agentId: Types.ObjectId;
+};
+
+type ReviewBookingShape = {
+	_id: Types.ObjectId;
+	userId: Types.ObjectId;
+	tourId: Types.ObjectId;
+	agentId: Types.ObjectId;
+	bookingStatus: BookingStatus;
+	paymentStatus: PaymentStatus;
+};
+
+type TourReviewStatsShape = {
+	_id: Types.ObjectId;
+	tourAverageRating: number;
+	tourReviewCount: number;
+};
+
+@Injectable()
+export class ReviewService {
+	constructor(
+		@InjectModel('Review') private readonly reviewModel: Model<ReviewDocumentShape>,
+		@InjectModel('Booking') private readonly bookingModel: Model<ReviewBookingShape>,
+		@InjectModel('Tour') private readonly tourModel: Model<TourReviewStatsShape>,
+		private readonly memberService: MemberService,
+	) {}
+
+	public async createReview(userId: string, input: ReviewInput): Promise<Review> {
+		if (!isValidObjectId(userId) || !isValidObjectId(input.bookingId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+		const reviewComment = input.reviewComment.trim();
+		if (reviewComment.length < 3) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const member = await this.memberService.getMember(userId);
+		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const session = await this.reviewModel.db.startSession();
+		try {
+			const result = await session.withTransaction(async (): Promise<Review> => {
+				const booking = await this.bookingModel
+					.findOne({
+						_id: input.bookingId,
+						userId: new Types.ObjectId(userId),
+						bookingStatus: BookingStatus.COMPLETED,
+						paymentStatus: PaymentStatus.PAID,
+					})
+					.session(session)
+					.lean<ReviewBookingShape>()
+					.exec();
+				if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+				const tour = await this.tourModel.findById(booking.tourId).session(session).lean<TourReviewStatsShape>().exec();
+				if (!tour) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+				const [createdReview] = await this.reviewModel.create(
+					[
+						{
+							bookingId: booking._id,
+							userId: booking.userId,
+							tourId: booking.tourId,
+							agentId: booking.agentId,
+							reviewRating: input.reviewRating,
+							reviewComment,
+							reviewStatus: ReviewStatus.ACTIVE,
+						},
+					],
+					{ session },
+				);
+
+				const reviewCount = tour.tourReviewCount + 1;
+				const averageRating = Number(
+					((tour.tourAverageRating * tour.tourReviewCount + input.reviewRating) / reviewCount).toFixed(2),
+				);
+				const updatedTour = await this.tourModel
+					.updateOne(
+						{
+							_id: booking.tourId,
+							tourReviewCount: tour.tourReviewCount,
+							tourAverageRating: tour.tourAverageRating,
+						},
+						{
+							$set: { tourAverageRating: averageRating },
+							$inc: { tourReviewCount: 1 },
+						},
+						{ session, runValidators: true },
+					)
+					.exec();
+				if (updatedTour.matchedCount === 0) throw new ConflictException(Message.UPDATE_FAILED);
+
+				await this.memberService.increaseMemberReviewCount(userId, session);
+				return createdReview.toObject() as unknown as Review;
+			});
+
+			if (!result) throw new InternalServerErrorException(Message.CREATE_FAILED);
+			return result;
+		} catch (error: unknown) {
+			if (
+				error instanceof BadRequestException ||
+				error instanceof ConflictException ||
+				error instanceof ForbiddenException ||
+				error instanceof NotFoundException ||
+				error instanceof InternalServerErrorException
+			) {
+				throw error;
+			}
+			if (this.isDuplicateKeyError(error)) throw new ConflictException(Message.CREATE_FAILED);
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+			throw new InternalServerErrorException(Message.CREATE_FAILED);
+		} finally {
+			await session.endSession();
+		}
+	}
+
+	private isDuplicateKeyError(error: unknown): boolean {
+		return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;
+	}
+}
