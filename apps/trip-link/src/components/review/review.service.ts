@@ -8,12 +8,13 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, Types } from 'mongoose';
-import { ReviewInput } from '../../libs/dto/review/review.input';
-import { Review } from '../../libs/dto/review/review';
+import { ReviewInput, TourReviewsInquiry } from '../../libs/dto/review/review.input';
+import { Review, Reviews } from '../../libs/dto/review/review';
 import { BookingStatus, PaymentStatus } from '../../libs/enums/booking.enum';
-import { Message } from '../../libs/enums/common.enum';
+import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { ReviewStatus } from '../../libs/enums/review.enum';
+import { TourStatus } from '../../libs/enums/tour.enum';
 import { MemberService } from '../member/member.service';
 
 type ReviewDocumentShape = Omit<Review, '_id' | 'bookingId' | 'userId' | 'tourId' | 'agentId'> & {
@@ -135,6 +136,57 @@ export class ReviewService {
 		} finally {
 			await session.endSession();
 		}
+	}
+
+	public async getTourReviews(input: TourReviewsInquiry): Promise<Reviews> {
+		if (!isValidObjectId(input.search.tourId)) throw new BadRequestException(Message.BAD_REQUEST);
+
+		const tourId = new Types.ObjectId(input.search.tourId);
+		const publicTour = await this.tourModel
+			.exists({ _id: tourId, tourStatus: { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT] } })
+			.exec();
+		if (!publicTour) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+		const match: Record<string, unknown> = { tourId, reviewStatus: ReviewStatus.ACTIVE };
+		if (input.search.reviewRating !== undefined) match.reviewRating = input.search.reviewRating;
+		const sortField = input.sort ?? 'createdAt';
+		const sortDirection = input.direction ?? Direction.DESC;
+
+		const [result] = await this.reviewModel
+			.aggregate<Reviews>([
+				{ $match: match },
+				{ $sort: { [sortField]: sortDirection } },
+				{
+					$facet: {
+						list: [
+							{ $skip: (input.page - 1) * input.limit },
+							{ $limit: input.limit },
+							{
+								$lookup: {
+									from: 'members',
+									localField: 'userId',
+									foreignField: '_id',
+									as: 'userData',
+								},
+							},
+							{ $unwind: { path: '$userData', preserveNullAndEmptyArrays: true } },
+							{
+								$unset: [
+									'userData.memberPassword',
+									'userData.memberEmail',
+									'userData.memberPhone',
+									'userData.memberPhoneCountryCode',
+									'userData.memberAddress',
+								],
+							},
+						],
+						metaCounter: [{ $count: 'total' }],
+					},
+				},
+			])
+			.exec();
+
+		return result ?? { list: [], metaCounter: [] };
 	}
 
 	private isDuplicateKeyError(error: unknown): boolean {
