@@ -33,4 +33,11 @@ export class ReviewResolver {
 	public updateReview(@Args('input') input: ReviewUpdate, @AuthMember('sub') userId: string): Promise<Review> {
 		return this.reviewService.updateReview(userId, input);
 	}
+
+	@Roles(MemberType.USER)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Review)
+	public removeReview(@Args('reviewId') reviewId: string, @AuthMember('sub') userId: string): Promise<Review> {
+		return this.reviewService.removeReview(userId, reviewId);
+	}
 }

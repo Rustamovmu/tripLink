@@ -7,7 +7,7 @@ import {
 	NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { isValidObjectId, Model, Types } from 'mongoose';
+import { ClientSession, isValidObjectId, Model, Types } from 'mongoose';
 import { ReviewInput, TourReviewsInquiry } from '../../libs/dto/review/review.input';
 import { Review, Reviews } from '../../libs/dto/review/review';
 import { ReviewUpdate } from '../../libs/dto/review/review.update';
@@ -249,39 +249,7 @@ export class ReviewService {
 				if (!updatedReview) throw new ConflictException(Message.UPDATE_FAILED);
 
 				if (input.reviewRating !== undefined && input.reviewRating !== existingReview.reviewRating) {
-					const [ratingStats] = await this.reviewModel
-						.aggregate<ReviewRatingStats>([
-							{
-								$match: {
-									tourId: existingReview.tourId,
-									reviewStatus: ReviewStatus.ACTIVE,
-								},
-							},
-							{
-								$group: {
-									_id: null,
-									averageRating: { $avg: '$reviewRating' },
-									reviewCount: { $sum: 1 },
-								},
-							},
-						])
-						.session(session)
-						.exec();
-					if (!ratingStats) throw new ConflictException(Message.UPDATE_FAILED);
-
-					const updatedTour = await this.tourModel
-						.updateOne(
-							{ _id: existingReview.tourId },
-							{
-								$set: {
-									tourAverageRating: Number(ratingStats.averageRating.toFixed(2)),
-									tourReviewCount: ratingStats.reviewCount,
-								},
-							},
-							{ session, runValidators: true },
-						)
-						.exec();
-					if (updatedTour.matchedCount === 0) throw new ConflictException(Message.UPDATE_FAILED);
+					await this.syncTourReviewStats(existingReview.tourId, session);
 				}
 
 				return updatedReview;
@@ -306,6 +274,92 @@ export class ReviewService {
 		} finally {
 			await session.endSession();
 		}
+	}
+
+	public async removeReview(userId: string, reviewId: string): Promise<Review> {
+		if (!isValidObjectId(userId) || !isValidObjectId(reviewId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const member = await this.memberService.getMember(userId);
+		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const session = await this.reviewModel.db.startSession();
+		try {
+			const result = await session.withTransaction(async (): Promise<Review> => {
+				const removedReview = await this.reviewModel
+					.findOneAndUpdate(
+						{
+							_id: reviewId,
+							userId: new Types.ObjectId(userId),
+							reviewStatus: ReviewStatus.ACTIVE,
+						},
+						{
+							$set: {
+								reviewStatus: ReviewStatus.DELETE,
+								deletedAt: new Date(),
+							},
+						},
+						{ new: true, runValidators: true, session },
+					)
+					.lean<ReviewDocumentShape>()
+					.exec();
+				if (!removedReview) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+				await this.syncTourReviewStats(removedReview.tourId, session);
+				await this.memberService.decreaseMemberReviewCount(userId, session);
+				return removedReview as unknown as Review;
+			});
+
+			if (!result) throw new InternalServerErrorException(Message.REMOVE_FAILED);
+			return result;
+		} catch (error: unknown) {
+			if (
+				error instanceof BadRequestException ||
+				error instanceof ConflictException ||
+				error instanceof ForbiddenException ||
+				error instanceof NotFoundException ||
+				error instanceof InternalServerErrorException
+			) {
+				throw error;
+			}
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+			throw new InternalServerErrorException(Message.REMOVE_FAILED);
+		} finally {
+			await session.endSession();
+		}
+	}
+
+	private async syncTourReviewStats(tourId: Types.ObjectId, session: ClientSession): Promise<void> {
+		const [ratingStats] = await this.reviewModel
+			.aggregate<ReviewRatingStats>([
+				{ $match: { tourId, reviewStatus: ReviewStatus.ACTIVE } },
+				{
+					$group: {
+						_id: null,
+						averageRating: { $avg: '$reviewRating' },
+						reviewCount: { $sum: 1 },
+					},
+				},
+			])
+			.session(session)
+			.exec();
+
+		const updatedTour = await this.tourModel
+			.updateOne(
+				{ _id: tourId },
+				{
+					$set: {
+						tourAverageRating: ratingStats ? Number(ratingStats.averageRating.toFixed(2)) : 0,
+						tourReviewCount: ratingStats?.reviewCount ?? 0,
+					},
+				},
+				{ session, runValidators: true },
+			)
+			.exec();
+		if (updatedTour.matchedCount === 0) throw new ConflictException(Message.UPDATE_FAILED);
 	}
 
 	private isDuplicateKeyError(error: unknown): boolean {
