@@ -7,8 +7,8 @@ import {
 	NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { ClientSession, isValidObjectId, Model, Types } from 'mongoose';
-import { ReviewInput, TourReviewsInquiry } from '../../libs/dto/review/review.input';
+import { ClientSession, isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
+import { AllReviewsInquiry, ReviewInput, TourReviewsInquiry } from '../../libs/dto/review/review.input';
 import { ReviewModerationInput } from '../../libs/dto/review/review.moderation';
 import { Review, Reviews } from '../../libs/dto/review/review';
 import { ReviewUpdate } from '../../libs/dto/review/review.update';
@@ -157,44 +157,7 @@ export class ReviewService {
 
 		const match: Record<string, unknown> = { tourId, reviewStatus: ReviewStatus.ACTIVE };
 		if (input.search.reviewRating !== undefined) match.reviewRating = input.search.reviewRating;
-		const sortField = input.sort ?? 'createdAt';
-		const sortDirection = input.direction ?? Direction.DESC;
-
-		const [result] = await this.reviewModel
-			.aggregate<Reviews>([
-				{ $match: match },
-				{ $sort: { [sortField]: sortDirection } },
-				{
-					$facet: {
-						list: [
-							{ $skip: (input.page - 1) * input.limit },
-							{ $limit: input.limit },
-							{
-								$lookup: {
-									from: 'members',
-									localField: 'userId',
-									foreignField: '_id',
-									as: 'userData',
-								},
-							},
-							{ $unwind: { path: '$userData', preserveNullAndEmptyArrays: true } },
-							{
-								$unset: [
-									'userData.memberPassword',
-									'userData.memberEmail',
-									'userData.memberPhone',
-									'userData.memberPhoneCountryCode',
-									'userData.memberAddress',
-								],
-							},
-						],
-						metaCounter: [{ $count: 'total' }],
-					},
-				},
-			])
-			.exec();
-
-		return result ?? { list: [], metaCounter: [] };
+		return this.aggregateReviews(match, input, ['userData'], false);
 	}
 
 	public async updateReview(userId: string, input: ReviewUpdate): Promise<Review> {
@@ -404,6 +367,91 @@ export class ReviewService {
 		} finally {
 			await session.endSession();
 		}
+	}
+
+	public async getAllReviewsByAdmin(input: AllReviewsInquiry): Promise<Reviews> {
+		const identifierFilters = [
+			input.search.bookingId,
+			input.search.userId,
+			input.search.agentId,
+			input.search.tourId,
+		].filter((identifier): identifier is string => identifier !== undefined);
+		if (identifierFilters.some((identifier) => !isValidObjectId(identifier))) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const match: Record<string, unknown> = {};
+		if (input.search.reviewStatus) match.reviewStatus = input.search.reviewStatus;
+		if (input.search.reviewRating !== undefined) match.reviewRating = input.search.reviewRating;
+		if (input.search.bookingId) match.bookingId = new Types.ObjectId(input.search.bookingId);
+		if (input.search.userId) match.userId = new Types.ObjectId(input.search.userId);
+		if (input.search.agentId) match.agentId = new Types.ObjectId(input.search.agentId);
+		if (input.search.tourId) match.tourId = new Types.ObjectId(input.search.tourId);
+
+		return this.aggregateReviews(match, input, ['userData', 'agentData'], true);
+	}
+
+	private async aggregateReviews(
+		match: Record<string, unknown>,
+		input: TourReviewsInquiry | AllReviewsInquiry,
+		memberDataFields: Array<'userData' | 'agentData'>,
+		includeTour: boolean,
+	): Promise<Reviews> {
+		const contextStages: Array<PipelineStage.Lookup | PipelineStage.Unwind | PipelineStage.Unset> = [];
+		if (includeTour) {
+			contextStages.push(
+				{
+					$lookup: {
+						from: 'tours',
+						localField: 'tourId',
+						foreignField: '_id',
+						as: 'tourData',
+					},
+				},
+				{ $unwind: { path: '$tourData', preserveNullAndEmptyArrays: true } },
+			);
+		}
+
+		for (const dataField of memberDataFields) {
+			const localField = dataField === 'userData' ? 'userId' : 'agentId';
+			contextStages.push(
+				{
+					$lookup: {
+						from: 'members',
+						localField,
+						foreignField: '_id',
+						as: dataField,
+					},
+				},
+				{ $unwind: { path: `$${dataField}`, preserveNullAndEmptyArrays: true } },
+				{
+					$unset: [
+						`${dataField}.memberPassword`,
+						`${dataField}.memberEmail`,
+						`${dataField}.memberPhone`,
+						`${dataField}.memberPhoneCountryCode`,
+						`${dataField}.memberAddress`,
+					],
+				},
+			);
+		}
+
+		const sortField = input.sort ?? 'createdAt';
+		const sortDirection = input.direction ?? Direction.DESC;
+		const [result] = await this.reviewModel
+			.aggregate<Reviews>([
+				{ $match: match },
+				{ $sort: { [sortField]: sortDirection } },
+				{
+					$facet: {
+						list: [{ $skip: (input.page - 1) * input.limit }, { $limit: input.limit }, ...contextStages],
+						metaCounter: [{ $count: 'total' }],
+					},
+				},
+			])
+			.exec();
+
+		return result ?? { list: [], metaCounter: [] };
 	}
 
 	private async syncTourReviewStats(tourId: Types.ObjectId, session: ClientSession): Promise<void> {

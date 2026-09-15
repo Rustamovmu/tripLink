@@ -2,6 +2,7 @@ import { Field, Int, ObjectType } from '@nestjs/graphql';
 import type { ObjectId } from 'mongoose';
 import { ReviewStatus } from '../../enums/review.enum';
 import { Member, TotalCounter } from '../member/member';
+import { Tour } from '../tour/tour';
 
 @ObjectType()
 export class Review {
@@ -46,6 +47,12 @@ export class Review {
 
 	@Field(() => Member, { nullable: true })
 	userData?: Member;
+
+	@Field(() => Member, { nullable: true })
+	agentData?: Member;
+
+	@Field(() => Tour, { nullable: true })
+	tourData?: Tour;
 }
 
 @ObjectType()
