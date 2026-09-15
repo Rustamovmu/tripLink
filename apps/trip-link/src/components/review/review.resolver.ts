@@ -2,6 +2,7 @@ import { UseGuards } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { ReviewInput, TourReviewsInquiry } from '../../libs/dto/review/review.input';
 import { Review, Reviews } from '../../libs/dto/review/review';
+import { ReviewUpdate } from '../../libs/dto/review/review.update';
 import { MemberType } from '../../libs/enums/member.enum';
 import { AuthMember } from '../auth/decorators/auth-member.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -24,5 +25,12 @@ export class ReviewResolver {
 	@Query(() => Reviews)
 	public getTourReviews(@Args('input') input: TourReviewsInquiry): Promise<Reviews> {
 		return this.reviewService.getTourReviews(input);
+	}
+
+	@Roles(MemberType.USER)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Review)
+	public updateReview(@Args('input') input: ReviewUpdate, @AuthMember('sub') userId: string): Promise<Review> {
+		return this.reviewService.updateReview(userId, input);
 	}
 }

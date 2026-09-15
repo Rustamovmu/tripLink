@@ -10,6 +10,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, Types } from 'mongoose';
 import { ReviewInput, TourReviewsInquiry } from '../../libs/dto/review/review.input';
 import { Review, Reviews } from '../../libs/dto/review/review';
+import { ReviewUpdate } from '../../libs/dto/review/review.update';
 import { BookingStatus, PaymentStatus } from '../../libs/enums/booking.enum';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
@@ -38,6 +39,12 @@ type TourReviewStatsShape = {
 	_id: Types.ObjectId;
 	tourAverageRating: number;
 	tourReviewCount: number;
+};
+
+type ReviewRatingStats = {
+	_id: null;
+	averageRating: number;
+	reviewCount: number;
 };
 
 @Injectable()
@@ -187,6 +194,118 @@ export class ReviewService {
 			.exec();
 
 		return result ?? { list: [], metaCounter: [] };
+	}
+
+	public async updateReview(userId: string, input: ReviewUpdate): Promise<Review> {
+		if (
+			!isValidObjectId(userId) ||
+			!isValidObjectId(input.reviewId) ||
+			Object.values(input).some((value) => value === null)
+		) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+		if (input.reviewRating === undefined && input.reviewComment === undefined) {
+			throw new BadRequestException(Message.NO_UPDATE_FIELDS);
+		}
+
+		const reviewComment = input.reviewComment?.trim();
+		if (reviewComment !== undefined && (reviewComment.length < 3 || reviewComment.length > 2000)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const member = await this.memberService.getMember(userId);
+		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+
+		const session = await this.reviewModel.db.startSession();
+		try {
+			const result = await session.withTransaction(async (): Promise<Review> => {
+				const existingReview = await this.reviewModel
+					.findOne({
+						_id: input.reviewId,
+						userId: new Types.ObjectId(userId),
+						reviewStatus: ReviewStatus.ACTIVE,
+					})
+					.session(session)
+					.lean<ReviewDocumentShape>()
+					.exec();
+				if (!existingReview) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+				const update: Partial<Pick<Review, 'reviewRating' | 'reviewComment'>> = {};
+				if (input.reviewRating !== undefined) update.reviewRating = input.reviewRating;
+				if (reviewComment !== undefined) update.reviewComment = reviewComment;
+
+				const updatedReview = await this.reviewModel
+					.findOneAndUpdate(
+						{
+							_id: existingReview._id,
+							userId: new Types.ObjectId(userId),
+							reviewStatus: ReviewStatus.ACTIVE,
+						},
+						{ $set: update },
+						{ new: true, runValidators: true, session },
+					)
+					.lean<Review>()
+					.exec();
+				if (!updatedReview) throw new ConflictException(Message.UPDATE_FAILED);
+
+				if (input.reviewRating !== undefined && input.reviewRating !== existingReview.reviewRating) {
+					const [ratingStats] = await this.reviewModel
+						.aggregate<ReviewRatingStats>([
+							{
+								$match: {
+									tourId: existingReview.tourId,
+									reviewStatus: ReviewStatus.ACTIVE,
+								},
+							},
+							{
+								$group: {
+									_id: null,
+									averageRating: { $avg: '$reviewRating' },
+									reviewCount: { $sum: 1 },
+								},
+							},
+						])
+						.session(session)
+						.exec();
+					if (!ratingStats) throw new ConflictException(Message.UPDATE_FAILED);
+
+					const updatedTour = await this.tourModel
+						.updateOne(
+							{ _id: existingReview.tourId },
+							{
+								$set: {
+									tourAverageRating: Number(ratingStats.averageRating.toFixed(2)),
+									tourReviewCount: ratingStats.reviewCount,
+								},
+							},
+							{ session, runValidators: true },
+						)
+						.exec();
+					if (updatedTour.matchedCount === 0) throw new ConflictException(Message.UPDATE_FAILED);
+				}
+
+				return updatedReview;
+			});
+
+			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
+		} catch (error: unknown) {
+			if (
+				error instanceof BadRequestException ||
+				error instanceof ConflictException ||
+				error instanceof ForbiddenException ||
+				error instanceof NotFoundException ||
+				error instanceof InternalServerErrorException
+			) {
+				throw error;
+			}
+			if (error instanceof Error && (error.name === 'ValidationError' || error.name === 'CastError')) {
+				throw new BadRequestException(Message.BAD_REQUEST);
+			}
+			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		} finally {
+			await session.endSession();
+		}
 	}
 
 	private isDuplicateKeyError(error: unknown): boolean {
