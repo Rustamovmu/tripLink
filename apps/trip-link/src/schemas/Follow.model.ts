@@ -2,7 +2,7 @@ import { Schema } from 'mongoose';
 
 const FollowSchema = new Schema(
 	{
-		agentId: {
+		followingId: {
 			type: Schema.Types.ObjectId,
 			required: true,
 			ref: 'Member',
@@ -17,7 +17,8 @@ const FollowSchema = new Schema(
 	{ timestamps: true, collection: 'follows' },
 );
 
-FollowSchema.index({ agentId: 1, followerId: 1 }, { unique: true });
+FollowSchema.index({ followingId: 1, followerId: 1 }, { unique: true });
 FollowSchema.index({ followerId: 1, createdAt: -1 });
+FollowSchema.index({ followingId: 1, createdAt: -1 });
 
 export default FollowSchema;

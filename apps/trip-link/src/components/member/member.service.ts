@@ -286,6 +286,54 @@ export class MemberService {
 		if (result.matchedCount === 0) throw new ConflictException(Message.UPDATE_FAILED);
 	}
 
+	public async adjustMemberFollowCounts(
+		followerId: string,
+		followingId: string,
+		modifier: 1 | -1,
+		session: ClientSession,
+	): Promise<Member> {
+		if (!isValidObjectId(followerId) || !isValidObjectId(followingId)) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+		if (!session.inTransaction()) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
+
+		const allowedMemberTypes = [MemberType.USER, MemberType.AGENT];
+		const followerMatch: Record<string, unknown> = {
+			_id: followerId,
+			memberType: { $in: allowedMemberTypes },
+			memberStatus: MemberStatus.ACTIVE,
+		};
+		const followingMatch: Record<string, unknown> = {
+			_id: followingId,
+			memberType: { $in: allowedMemberTypes },
+			memberStatus: MemberStatus.ACTIVE,
+		};
+		if (modifier === -1) {
+			followerMatch.memberFollowings = { $gte: 1 };
+			followingMatch.memberFollowers = { $gte: 1 };
+		}
+
+		const follower = await this.memberModel
+			.findOneAndUpdate(
+				followerMatch,
+				{ $inc: { memberFollowings: modifier } },
+				{ new: true, session, timestamps: false },
+			)
+			.exec();
+		if (!follower) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
+
+		const following = await this.memberModel
+			.findOneAndUpdate(
+				followingMatch,
+				{ $inc: { memberFollowers: modifier } },
+				{ new: true, session, timestamps: false },
+			)
+			.exec();
+		if (!following) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+		return this.toPublicMember(following.toObject());
+	}
+
 	public async adjustMemberReviewCountForModeration(
 		memberId: string,
 		modifier: 1 | -1,
