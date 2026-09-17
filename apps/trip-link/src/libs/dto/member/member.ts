@@ -52,6 +52,9 @@ export class Member {
 	@Field(() => Int)
 	memberComments!: number;
 
+	@Field(() => Boolean, { nullable: true })
+	isFollowing?: boolean;
+
 	@Field(() => Date)
 	createdAt!: Date;
 

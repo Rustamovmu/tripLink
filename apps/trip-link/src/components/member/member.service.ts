@@ -8,7 +8,7 @@ import {
 	UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { ClientSession, isValidObjectId, Model } from 'mongoose';
+import { ClientSession, isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
 import { AuthPayload, Member, Members } from '../../libs/dto/member/member';
 import { AgentsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
 import { MemberAdminUpdate, MemberUpdate } from '../../libs/dto/member/member.update';
@@ -24,6 +24,11 @@ type MemberRecord = Member & {
 	memberPhone?: string;
 	memberAddress?: string;
 	memberPassword: string;
+};
+
+type FollowRecord = {
+	followingId: Types.ObjectId;
+	followerId: Types.ObjectId;
 };
 
 type MemberUpdateFields = Partial<
@@ -57,6 +62,7 @@ type MemberAdminUpdateFields = Partial<
 export class MemberService {
 	constructor(
 		@InjectModel('Member') private readonly memberModel: Model<MemberRecord>,
+		@InjectModel('Follow') private readonly followModel: Model<FollowRecord>,
 		private readonly authService: AuthService,
 		private readonly likeService: LikeService,
 	) {}
@@ -214,13 +220,17 @@ export class MemberService {
 		}
 	}
 
-	public async getMember(memberId: string): Promise<Member> {
-		if (!isValidObjectId(memberId)) throw new BadRequestException(Message.BAD_REQUEST);
+	public async getMember(memberId: string, viewerId: string | null = null): Promise<Member> {
+		if (!isValidObjectId(memberId) || (viewerId !== null && !isValidObjectId(viewerId))) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
 
 		const member = await this.memberModel.findOne({ _id: memberId, memberStatus: MemberStatus.ACTIVE }).exec();
 		if (!member) throw new NotFoundException(Message.NO_DATA_FOUND);
 
-		return this.toPublicMember(member.toObject());
+		const publicMember = this.toPublicMember(member.toObject());
+		publicMember.isFollowing = await this.isMemberFollowed(viewerId, memberId);
+		return publicMember;
 	}
 
 	public async increaseMemberTourCount(memberId: string): Promise<void> {
@@ -349,7 +359,9 @@ export class MemberService {
 		if (result.matchedCount === 0) throw new ConflictException(Message.UPDATE_FAILED);
 	}
 
-	public async getAgents(input: AgentsInquiry): Promise<Members> {
+	public async getAgents(input: AgentsInquiry, viewerId: string | null = null): Promise<Members> {
+		if (viewerId !== null && !isValidObjectId(viewerId)) throw new BadRequestException(Message.BAD_REQUEST);
+
 		const match: Record<string, unknown> = {
 			memberType: MemberType.AGENT,
 			memberStatus: MemberStatus.ACTIVE,
@@ -363,6 +375,7 @@ export class MemberService {
 		const sortField = input.sort ?? 'createdAt';
 		const sortDirection = input.direction ?? Direction.DESC;
 		const skip = (input.page - 1) * input.limit;
+		const viewerStateStages = this.memberFollowStateStages(viewerId);
 
 		const [result] = await this.memberModel
 			.aggregate<Members>([
@@ -395,6 +408,7 @@ export class MemberService {
 									updatedAt: 1,
 								},
 							},
+							...viewerStateStages,
 						],
 						metaCounter: [{ $count: 'total' }],
 					},
@@ -403,6 +417,45 @@ export class MemberService {
 			.exec();
 
 		return result ?? { list: [], metaCounter: [] };
+	}
+
+	private memberFollowStateStages(viewerId: string | null): PipelineStage.FacetPipelineStage[] {
+		if (!viewerId) return [{ $set: { isFollowing: false } }];
+
+		return [
+			{
+				$lookup: {
+					from: 'follows',
+					let: { targetId: '$_id' },
+					pipeline: [
+						{
+							$match: {
+								$expr: {
+									$and: [
+										{ $eq: ['$followerId', new Types.ObjectId(viewerId)] },
+										{ $eq: ['$followingId', '$$targetId'] },
+									],
+								},
+							},
+						},
+						{ $limit: 1 },
+					],
+					as: 'viewerFollow',
+				},
+			},
+			{ $set: { isFollowing: { $gt: [{ $size: '$viewerFollow' }, 0] } } },
+			{ $unset: 'viewerFollow' },
+		];
+	}
+
+	private async isMemberFollowed(viewerId: string | null, memberId: string): Promise<boolean> {
+		if (!viewerId || viewerId.toLowerCase() === memberId.toLowerCase()) return false;
+
+		const follow = await this.followModel.exists({
+			followerId: new Types.ObjectId(viewerId),
+			followingId: new Types.ObjectId(memberId),
+		});
+		return follow !== null;
 	}
 
 	public async getAllMembersByAdmin(input: MembersInquiry): Promise<Members> {

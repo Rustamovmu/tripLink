@@ -59,14 +59,20 @@ export class MemberResolver {
 
 	@UseGuards(WithoutGuard)
 	@Query(() => Member)
-	public getMember(@Args('memberId') memberId: string): Promise<Member> {
-		return this.memberService.getMember(memberId);
+	public getMember(
+		@Args('memberId') memberId: string,
+		@AuthMember() authMember: AuthTokenPayload | null,
+	): Promise<Member> {
+		return this.memberService.getMember(memberId, this.getViewerId(authMember));
 	}
 
 	@UseGuards(WithoutGuard)
 	@Query(() => Members)
-	public getAgents(@Args('input') input: AgentsInquiry): Promise<Members> {
-		return this.memberService.getAgents(input);
+	public getAgents(
+		@Args('input') input: AgentsInquiry,
+		@AuthMember() authMember: AuthTokenPayload | null,
+	): Promise<Members> {
+		return this.memberService.getAgents(input, this.getViewerId(authMember));
 	}
 
 	@Roles(MemberType.ADMIN)
@@ -113,5 +119,10 @@ export class MemberResolver {
 		@AuthMember('sub') memberId: string,
 	): Promise<string[]> {
 		return this.uploadService.uploadImages(files, target, memberId);
+	}
+
+	private getViewerId(authMember: AuthTokenPayload | null): string | null {
+		if (!authMember || ![MemberType.USER, MemberType.AGENT].includes(authMember.memberType)) return null;
+		return authMember.sub;
 	}
 }
