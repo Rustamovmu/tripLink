@@ -1,6 +1,7 @@
-import { Field, Int, ObjectType } from '@nestjs/graphql';
+import { Field, Float, Int, ObjectType } from '@nestjs/graphql';
 import type { ObjectId } from 'mongoose';
 import { MemberStatus, MemberType } from '../../enums/member.enum';
+import { Tour } from '../tour/tour';
 
 @ObjectType()
 export class Member {
@@ -54,6 +55,18 @@ export class Member {
 
 	@Field(() => Boolean, { nullable: true })
 	isFollowing?: boolean;
+
+	@Field(() => Float, { nullable: true })
+	agentAverageRating?: number;
+
+	@Field(() => Int, { nullable: true })
+	agentReviewCount?: number;
+
+	@Field(() => Int, { nullable: true })
+	agentTourCount?: number;
+
+	@Field(() => [Tour], { nullable: true })
+	recentTours?: Tour[];
 
 	@Field(() => Date)
 	createdAt!: Date;

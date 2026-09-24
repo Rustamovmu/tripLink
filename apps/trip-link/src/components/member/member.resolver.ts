@@ -63,7 +63,7 @@ export class MemberResolver {
 		@Args('memberId') memberId: string,
 		@AuthMember() authMember: AuthTokenPayload | null,
 	): Promise<Member> {
-		return this.memberService.getMember(memberId, this.getViewerId(authMember));
+		return this.memberService.getMemberProfile(memberId, this.getViewerId(authMember));
 	}
 
 	@UseGuards(WithoutGuard)

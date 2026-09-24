@@ -116,6 +116,103 @@ describe('Follow GraphQL API (e2e)', () => {
 		expect(selfFollow.errors?.[0].extensions?.code).toBe('BAD_REQUEST');
 	});
 
+	it('uses the same public profile shape for users and agents', async () => {
+		type Profile = {
+			_id: string;
+			memberType: MemberType;
+			isFollowing: boolean;
+			agentAverageRating: number | null;
+			agentReviewCount: number | null;
+			agentTourCount: number | null;
+			recentTours: Array<{ _id: string }>;
+		};
+		const profileQuery = `query GetMember($memberId: String!) {
+			getMember(memberId: $memberId) {
+				_id memberType isFollowing
+				agentAverageRating agentReviewCount agentTourCount
+				recentTours { _id }
+			}
+		}`;
+
+		const userProfile = await graphqlRequest<{ getMember: Profile }>(profileQuery, { memberId: user._id });
+		expect(userProfile.errors).toBeUndefined();
+		expect(userProfile.data?.getMember).toMatchObject({
+			_id: user._id,
+			memberType: MemberType.USER,
+			isFollowing: false,
+			agentAverageRating: null,
+			agentReviewCount: null,
+			agentTourCount: null,
+			recentTours: [],
+		});
+
+		const agentProfile = await graphqlRequest<{ getMember: Profile }>(profileQuery, { memberId: agent._id }, userToken);
+		expect(agentProfile.errors).toBeUndefined();
+		expect(agentProfile.data?.getMember).toMatchObject({
+			_id: agent._id,
+			memberType: MemberType.AGENT,
+			isFollowing: false,
+			agentAverageRating: 0,
+			agentReviewCount: 0,
+			agentTourCount: 0,
+			recentTours: [],
+		});
+
+		await connection.collection('tours').insertMany([
+			{
+				agentId: new Types.ObjectId(agent._id),
+				tourSlug: 'profile-active',
+				tourStatus: 'ACTIVE',
+				createdAt: new Date('2026-01-01'),
+			},
+			{
+				agentId: new Types.ObjectId(agent._id),
+				tourSlug: 'profile-sold-out',
+				tourStatus: 'SOLD_OUT',
+				createdAt: new Date('2026-01-02'),
+			},
+			{
+				agentId: new Types.ObjectId(agent._id),
+				tourSlug: 'profile-draft',
+				tourStatus: 'DRAFT',
+				createdAt: new Date('2026-01-03'),
+			},
+		]);
+		await connection.collection('reviews').insertMany([
+			{
+				agentId: new Types.ObjectId(agent._id),
+				bookingId: new Types.ObjectId(),
+				reviewStatus: 'ACTIVE',
+				reviewRating: 4,
+			},
+			{
+				agentId: new Types.ObjectId(agent._id),
+				bookingId: new Types.ObjectId(),
+				reviewStatus: 'ACTIVE',
+				reviewRating: 5,
+			},
+			{
+				agentId: new Types.ObjectId(agent._id),
+				bookingId: new Types.ObjectId(),
+				reviewStatus: 'HIDDEN',
+				reviewRating: 1,
+			},
+		]);
+
+		const populatedAgentProfile = await graphqlRequest<{ getMember: Profile }>(
+			profileQuery,
+			{ memberId: agent._id },
+			userToken,
+		);
+		expect(populatedAgentProfile.errors).toBeUndefined();
+		expect(populatedAgentProfile.data?.getMember).toMatchObject({
+			agentAverageRating: 4.5,
+			agentReviewCount: 2,
+			agentTourCount: 2,
+		});
+		expect(populatedAgentProfile.data?.getMember.recentTours).toHaveLength(2);
+	});
+
 	it('supports USER and AGENT follows, relationship state, and paginated lists', async () => {
 		const userFollowsAgent = await graphqlRequest<{
 			toggleFollowMember: { followed: boolean; member: { memberFollowers: number } };
@@ -125,6 +222,12 @@ describe('Follow GraphQL API (e2e)', () => {
 			followed: true,
 			member: { memberFollowers: 1 },
 		});
+		const followedProfile = await graphqlRequest<{ getMember: { isFollowing: boolean } }>(
+			`query GetMember($memberId: String!) { getMember(memberId: $memberId) { isFollowing } }`,
+			{ memberId: agent._id },
+			userToken,
+		);
+		expect(followedProfile.data?.getMember.isFollowing).toBe(true);
 
 		const agentFollowsUser = await graphqlRequest<{
 			toggleFollowMember: { followed: boolean; member: { memberFollowers: number } };

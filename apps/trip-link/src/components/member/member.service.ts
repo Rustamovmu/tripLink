@@ -10,11 +10,14 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, isValidObjectId, Model, PipelineStage, Types } from 'mongoose';
 import { AuthPayload, Member, Members } from '../../libs/dto/member/member';
+import { Tour } from '../../libs/dto/tour/tour';
 import { AgentsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
 import { MemberAdminUpdate, MemberUpdate } from '../../libs/dto/member/member.update';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { MemberAuthType, MemberStatus, MemberType } from '../../libs/enums/member.enum';
+import { ReviewStatus } from '../../libs/enums/review.enum';
+import { TourStatus } from '../../libs/enums/tour.enum';
 import { AuthService } from '../auth/auth.service';
 import { LikeService, LikeToggleInput } from '../like/like.service';
 
@@ -29,6 +32,23 @@ type MemberRecord = Member & {
 type FollowRecord = {
 	followingId: Types.ObjectId;
 	followerId: Types.ObjectId;
+};
+
+type AgentReviewRecord = {
+	agentId: Types.ObjectId;
+	reviewStatus: ReviewStatus;
+	reviewRating: number;
+};
+
+type AgentTourRecord = {
+	agentId: Types.ObjectId;
+	tourStatus: TourStatus;
+};
+
+type AgentRatingStats = {
+	_id: null;
+	averageRating: number;
+	reviewCount: number;
 };
 
 type MemberUpdateFields = Partial<
@@ -63,6 +83,8 @@ export class MemberService {
 	constructor(
 		@InjectModel('Member') private readonly memberModel: Model<MemberRecord>,
 		@InjectModel('Follow') private readonly followModel: Model<FollowRecord>,
+		@InjectModel('Review') private readonly reviewModel: Model<AgentReviewRecord>,
+		@InjectModel('Tour') private readonly tourModel: Model<AgentTourRecord>,
 		private readonly authService: AuthService,
 		private readonly likeService: LikeService,
 	) {}
@@ -231,6 +253,41 @@ export class MemberService {
 		const publicMember = this.toPublicMember(member.toObject());
 		publicMember.isFollowing = await this.isMemberFollowed(viewerId, memberId);
 		return publicMember;
+	}
+
+	public async getMemberProfile(memberId: string, viewerId: string | null = null): Promise<Member> {
+		const member = await this.getMember(memberId, viewerId);
+		if (member.memberType === MemberType.ADMIN) throw new NotFoundException(Message.NO_DATA_FOUND);
+		if (member.memberType !== MemberType.AGENT) {
+			return { ...member, recentTours: [] };
+		}
+
+		const agentObjectId = new Types.ObjectId(memberId);
+		const publicStatuses = [TourStatus.ACTIVE, TourStatus.SOLD_OUT];
+		const [recentTours, agentTourCount, ratingStats] = await Promise.all([
+			this.tourModel
+				.find({ agentId: agentObjectId, tourStatus: { $in: publicStatuses } })
+				.sort({ createdAt: -1 })
+				.limit(6)
+				.lean<Tour[]>()
+				.exec(),
+			this.tourModel.countDocuments({ agentId: agentObjectId, tourStatus: { $in: publicStatuses } }).exec(),
+			this.reviewModel
+				.aggregate<AgentRatingStats>([
+					{ $match: { agentId: agentObjectId, reviewStatus: ReviewStatus.ACTIVE } },
+					{ $group: { _id: null, averageRating: { $avg: '$reviewRating' }, reviewCount: { $sum: 1 } } },
+				])
+				.exec(),
+		]);
+
+		const rating = ratingStats[0];
+		return {
+			...member,
+			agentAverageRating: rating ? Number(rating.averageRating.toFixed(2)) : 0,
+			agentReviewCount: rating?.reviewCount ?? 0,
+			agentTourCount,
+			recentTours,
+		};
 	}
 
 	public async increaseMemberTourCount(memberId: string): Promise<void> {
