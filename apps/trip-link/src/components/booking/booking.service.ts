@@ -453,51 +453,59 @@ export class BookingService {
 		const member = await this.memberService.getMember(userId);
 		if (member.memberType !== MemberType.USER) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
 
-		const now = new Date();
-		const booking = await this.bookingModel
-			.findOne({
-				_id: bookingId,
-				userId: new Types.ObjectId(userId),
-				bookingStatus: BookingStatus.CONFIRMED,
-				paymentStatus: PaymentStatus.UNPAID,
-				selectedDate: { $gt: now },
-			})
-			.lean<BookingDocumentShape>()
-			.exec();
-		if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
-
-		const availableTour = await this.tourModel
-			.exists({
-				_id: booking.tourId,
-				tourStatus: { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT] },
-			})
-			.exec();
-		if (!availableTour) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
-
+		const session = await this.bookingModel.db.startSession();
 		try {
-			const paidBooking = await this.bookingModel
-				.findOneAndUpdate(
-					{
-						_id: booking._id,
+			const result = await session.withTransaction(async (): Promise<Booking> => {
+				const booking = await this.bookingModel
+					.findOne({
+						_id: bookingId,
 						userId: new Types.ObjectId(userId),
 						bookingStatus: BookingStatus.CONFIRMED,
 						paymentStatus: PaymentStatus.UNPAID,
 						selectedDate: { $gt: new Date() },
-					},
-					{
-						$set: {
-							paymentStatus: PaymentStatus.PAID,
-							paymentReference: this.generatePaymentReference(),
-							paidAt: new Date(),
-						},
-					},
-					{ new: true, runValidators: true },
-				)
-				.lean<Booking>()
-				.exec();
+					})
+					.session(session)
+					.lean<BookingDocumentShape>()
+					.exec();
+				if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
 
-			if (!paidBooking) throw new ConflictException(Message.UPDATE_FAILED);
-			return paidBooking;
+				// A real tour write makes concurrent status changes conflict with this transaction.
+				// Only the internal version changes; seat counts and public timestamps remain untouched.
+				const eligibleTour = await this.tourModel
+					.updateOne(
+						{ _id: booking.tourId, tourStatus: { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT] } },
+						{ $inc: { __v: 1 } },
+						{ session, timestamps: false },
+					)
+					.exec();
+				if (eligibleTour.matchedCount === 0) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+
+				const paidBooking = await this.bookingModel
+					.findOneAndUpdate(
+						{
+							_id: booking._id,
+							userId: new Types.ObjectId(userId),
+							bookingStatus: BookingStatus.CONFIRMED,
+							paymentStatus: PaymentStatus.UNPAID,
+							selectedDate: { $gt: new Date() },
+						},
+						{
+							$set: {
+								paymentStatus: PaymentStatus.PAID,
+								paymentReference: this.generatePaymentReference(),
+								paidAt: new Date(),
+							},
+						},
+						{ new: true, runValidators: true, session },
+					)
+					.lean<Booking>()
+					.exec();
+
+				if (!paidBooking) throw new ConflictException(Message.UPDATE_FAILED);
+				return paidBooking;
+			});
+			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
 		} catch (error: unknown) {
 			if (
 				error instanceof BadRequestException ||
@@ -510,6 +518,8 @@ export class BookingService {
 				throw new BadRequestException(Message.BAD_REQUEST);
 			}
 			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		} finally {
+			await session.endSession();
 		}
 	}
 

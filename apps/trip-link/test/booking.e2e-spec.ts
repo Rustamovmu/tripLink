@@ -1,7 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
-import { Connection, Model, Types } from 'mongoose';
+import { ClientSession, Connection, Model, Types } from 'mongoose';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/components/auth/auth.service';
@@ -19,9 +19,27 @@ type StoredTour = {
 	tourBookingCount: number;
 	tourStatus: string;
 	tourFeatured: boolean;
+	updatedAt: Date;
+	__v?: number;
 	tourAvailableDates: Array<{ _id: Types.ObjectId; availableSeats: number }>;
 };
-type StoredBooking = { _id: Types.ObjectId; tourId: Types.ObjectId; bookingStatus: string };
+type StoredBooking = {
+	_id: Types.ObjectId;
+	tourId: Types.ObjectId;
+	bookingStatus: string;
+	paymentStatus: string;
+	paymentReference?: string;
+	paidAt?: Date;
+	refundReference?: string;
+};
+// Narrow Mongoose's overloaded method to the signature intercepted in the eligibility-write test.
+type TourEligibilityModel = {
+	updateOne(
+		filter: { _id: Types.ObjectId; tourStatus: { $in: string[] } },
+		update: { $inc: { __v: number } },
+		options: { session: ClientSession; timestamps: boolean },
+	): ReturnType<Model<StoredTour>['updateOne']>;
+};
 
 describe('Booking lifecycle and availability (e2e)', () => {
 	let app: INestApplication;
@@ -126,6 +144,115 @@ describe('Booking lifecycle and availability (e2e)', () => {
 		await expectSeats(tour, 2, 0, 'ACTIVE');
 		expect((await inputAction('refundBookingByAdmin', 'BookingRefundInput', input, adminToken)).errors).toBeDefined();
 		await expectSeats(tour, 2, 0, 'ACTIVE');
+	});
+
+	it('commits only one payment when duplicate payment requests race', async () => {
+		const tour = await createTour(2);
+		const booking = await createBooking(tour, 1);
+		expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+		const before = await connection.collection<StoredTour>('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+		const results = await Promise.all([
+			bookingAction('payBooking', booking._id, user.token),
+			bookingAction('payBooking', booking._id, user.token),
+		]);
+		expect(results.filter((result) => result.data?.payBooking)).toHaveLength(1);
+		expect(results.filter((result) => result.errors?.length)).toHaveLength(1);
+		const stored = await storedBooking(booking._id);
+		expect(stored).toMatchObject({ bookingStatus: 'CONFIRMED', paymentStatus: 'PAID' });
+		expect(stored?.paymentReference).toMatch(/^PAY-/);
+		expect(stored?.paidAt).toBeInstanceOf(Date);
+		const after = await connection.collection<StoredTour>('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+		expect(after?.__v).toBe((before?.__v ?? 0) + 1);
+		expect(after?.updatedAt).toEqual(before?.updatedAt);
+		await expectSeats(tour, 1, 1, 'ACTIVE');
+	});
+
+	it('commits either payment or unpaid cancellation without mixing their states', async () => {
+		for (let attempt = 0; attempt < 3; attempt++) {
+			const tour = await createTour(1);
+			const booking = await createBooking(tour, 1);
+			expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+			const [paid, cancelled] = await Promise.all([
+				bookingAction('payBooking', booking._id, user.token),
+				cancel(booking._id, user.token),
+			]);
+			expect([paid, cancelled].filter((result) => result.data)).toHaveLength(1);
+			expect([paid, cancelled].filter((result) => result.errors?.length)).toHaveLength(1);
+			const stored = await storedBooking(booking._id);
+			if (paid.data?.payBooking) {
+				expect(stored).toMatchObject({ bookingStatus: 'CONFIRMED', paymentStatus: 'PAID' });
+				await expectSeats(tour, 0, 1, 'SOLD_OUT');
+			} else {
+				expect(stored).toMatchObject({ bookingStatus: 'CANCELLED', paymentStatus: 'UNPAID' });
+				expect(stored?.paymentReference).toBeUndefined();
+				await expectSeats(tour, 1, 0, 'ACTIVE');
+			}
+		}
+	});
+
+	it('restores seats only once when unpaid cancellations race', async () => {
+		const tour = await createTour(1);
+		const booking = await createBooking(tour, 1);
+		expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+		const results = await Promise.all([cancel(booking._id, user.token), cancel(booking._id, user.token)]);
+		expect(results.filter((result) => result.data?.cancelBooking)).toHaveLength(1);
+		expect(results.filter((result) => result.errors?.length)).toHaveLength(1);
+		expect(await storedBooking(booking._id)).toMatchObject({ bookingStatus: 'CANCELLED', paymentStatus: 'UNPAID' });
+		await expectSeats(tour, 1, 0, 'ACTIVE');
+	});
+
+	it('restores seats and records a refund only once when refund requests race', async () => {
+		const tour = await createTour(1);
+		const booking = await createBooking(tour, 1);
+		expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+		expect((await bookingAction('payBooking', booking._id, user.token)).errors).toBeUndefined();
+		const input = { bookingId: booking._id, refundReason: 'Concurrent simulated refund test' };
+		const results = await Promise.all([
+			inputAction('refundBookingByAdmin', 'BookingRefundInput', input, adminToken),
+			inputAction('refundBookingByAdmin', 'BookingRefundInput', input, adminToken),
+		]);
+		expect(results.filter((result) => result.data?.refundBookingByAdmin)).toHaveLength(1);
+		expect(results.filter((result) => result.errors?.length)).toHaveLength(1);
+		const stored = await storedBooking(booking._id);
+		expect(stored).toMatchObject({ bookingStatus: 'CANCELLED', paymentStatus: 'REFUNDED' });
+		expect(stored?.refundReference).toMatch(/^REF-/);
+		await expectSeats(tour, 1, 0, 'ACTIVE');
+	});
+
+	it('rejects payment if tour cancellation commits after the booking read but before the eligibility write', async () => {
+		const tour = await createTour(2);
+		const booking = await createBooking(tour, 1);
+		expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+		const tourModel = app.get<Model<StoredTour>>(getModelToken('Tour')) as unknown as TourEligibilityModel;
+		const originalUpdate = tourModel.updateOne.bind(tourModel) as TourEligibilityModel['updateOne'];
+		const before = await connection.collection<StoredTour>('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+		let cancellationCommitted = false;
+		// Pause only the first eligibility write; cancellation and all database writes remain real.
+		const spy = jest.spyOn(tourModel, 'updateOne').mockImplementationOnce((filter, update, options) => {
+			const query = originalUpdate(filter, update, options);
+			const execute = query.exec.bind(query) as typeof query.exec;
+			jest.spyOn(query, 'exec').mockImplementationOnce(async () => {
+				const cancelled = await updateTour({ tourId: tour.id, tourStatus: 'CANCELLED' });
+				expect(cancelled.errors).toBeUndefined();
+				cancellationCommitted = true;
+				return execute();
+			});
+			return query;
+		});
+		try {
+			const paid = await bookingAction('payBooking', booking._id, user.token);
+			expect(cancellationCommitted).toBe(true);
+			expect(paid.errors?.[0].extensions?.code).toBe('BAD_REQUEST');
+			expect(await storedBooking(booking._id)).toMatchObject({ bookingStatus: 'CONFIRMED', paymentStatus: 'UNPAID' });
+			expect((await storedBooking(booking._id))?.paymentReference).toBeUndefined();
+			const after = await connection.collection<StoredTour>('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+			expect(after?.__v).toBe(before?.__v);
+			await expectSeats(tour, 1, 1, 'CANCELLED');
+		} finally {
+			spy.mockRestore();
+		}
+		expect((await cancel(booking._id, user.token)).errors).toBeUndefined();
+		await expectSeats(tour, 2, 0, 'CANCELLED');
 	});
 
 	it('enforces ownership and role restrictions without changing bookings or seats', async () => {
@@ -408,6 +535,10 @@ describe('Booking lifecycle and availability (e2e)', () => {
 			{ input },
 			token,
 		);
+	}
+
+	function storedBooking(bookingId: string) {
+		return connection.collection<StoredBooking>('bookings').findOne({ _id: new Types.ObjectId(bookingId) });
 	}
 
 	async function expectSeats(tour: Fixture, seats: number, bookings: number, status: string) {
