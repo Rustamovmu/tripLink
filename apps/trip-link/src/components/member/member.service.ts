@@ -275,6 +275,28 @@ export class MemberService {
 			this.reviewModel
 				.aggregate<AgentRatingStats>([
 					{ $match: { agentId: agentObjectId, reviewStatus: ReviewStatus.ACTIVE } },
+					{
+						$lookup: {
+							from: 'tours',
+							let: { reviewTourId: '$tourId', reviewAgentId: '$agentId' },
+							pipeline: [
+								{
+									$match: {
+										$expr: {
+											$and: [
+												{ $eq: ['$_id', '$$reviewTourId'] },
+												{ $eq: ['$agentId', '$$reviewAgentId'] },
+												{ $in: ['$tourStatus', publicStatuses] },
+											],
+										},
+									},
+								},
+								{ $project: { _id: 1 } },
+							],
+							as: 'publicTour',
+						},
+					},
+					{ $match: { 'publicTour.0': { $exists: true } } },
 					{ $group: { _id: null, averageRating: { $avg: '$reviewRating' }, reviewCount: { $sum: 1 } } },
 				])
 				.exec(),

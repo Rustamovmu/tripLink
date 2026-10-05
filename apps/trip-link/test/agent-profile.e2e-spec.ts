@@ -27,6 +27,19 @@ describe('Public agent reviews (e2e)', () => {
 			metaCounter { total }
 		}
 	}`;
+	const profileQuery = `query MemberProfile($memberId: String!) {
+		getMember(memberId: $memberId) {
+			_id agentAverageRating agentReviewCount agentTourCount recentTours { _id }
+		}
+	}`;
+	type ProfileResponse = {
+		getMember: {
+			agentAverageRating: number | null;
+			agentReviewCount: number | null;
+			agentTourCount: number | null;
+			recentTours: Array<{ _id: string }>;
+		};
+	};
 
 	beforeAll(async () => {
 		originalMongoDev = process.env.MONGO_DEV;
@@ -48,10 +61,12 @@ describe('Public agent reviews (e2e)', () => {
 		activeTourId = new Types.ObjectId();
 		soldOutTourId = new Types.ObjectId();
 		const draftTourId = new Types.ObjectId();
+		const otherOwnerTourId = new Types.ObjectId();
 		await connection.collection('tours').insertMany([
 			{ _id: activeTourId, agentId: new Types.ObjectId(agentId), tourStatus: 'ACTIVE', tourSlug: `active-${suffix}` },
 			{ _id: soldOutTourId, agentId: new Types.ObjectId(agentId), tourStatus: 'SOLD_OUT', tourSlug: `sold-${suffix}` },
 			{ _id: draftTourId, agentId: new Types.ObjectId(agentId), tourStatus: 'DRAFT', tourSlug: `draft-${suffix}` },
+			{ _id: otherOwnerTourId, agentId: new Types.ObjectId(), tourStatus: 'ACTIVE', tourSlug: `other-${suffix}` },
 		]);
 		await connection
 			.collection('reviews')
@@ -61,6 +76,9 @@ describe('Public agent reviews (e2e)', () => {
 				review(soldOutTourId, 'ACTIVE', 3, new Date('2026-01-03')),
 				review(activeTourId, 'HIDDEN', 1, new Date('2026-01-04')),
 				review(draftTourId, 'ACTIVE', 2, new Date('2026-01-05')),
+				review(activeTourId, 'DELETE', 1, new Date('2026-01-06')),
+				review(new Types.ObjectId(), 'ACTIVE', 1, new Date('2026-01-07')),
+				review(otherOwnerTourId, 'ACTIVE', 1, new Date('2026-01-08')),
 			]);
 	});
 
@@ -101,6 +119,55 @@ describe('Public agent reviews (e2e)', () => {
 		});
 		expect(filtered.data?.getPublicAgentReviews.list.map((item) => item.reviewRating)).toEqual([5]);
 		expect(filtered.data?.getPublicAgentReviews.metaCounter).toEqual([{ total: 1 }]);
+	});
+
+	it('matches profile rating and count to the unfiltered public review list', async () => {
+		const profile = await graphqlRequest<ProfileResponse>(profileQuery, { memberId: agentId });
+		const reviews = await graphqlRequest<{
+			getPublicAgentReviews: { list: Array<{ reviewRating: number }>; metaCounter: Array<{ total: number }> };
+		}>(reviewsQuery, { agentId, input: { page: 1, limit: 10, search: {} } });
+		expect(profile.errors).toBeUndefined();
+		expect(reviews.errors).toBeUndefined();
+		expect(profile.data?.getMember.agentReviewCount).toBe(3);
+		expect(profile.data?.getMember.agentReviewCount).toBe(reviews.data?.getPublicAgentReviews.metaCounter[0].total);
+		const ratings = reviews.data!.getPublicAgentReviews.list.map((item) => item.reviewRating);
+		expect(profile.data?.getMember.agentAverageRating).toBe(
+			ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length,
+		);
+		expect(profile.data?.getMember.agentAverageRating).toBe(4);
+		expect(profile.data?.getMember.agentTourCount).toBe(2);
+		expect(profile.data?.getMember.recentTours.map((tour) => tour._id).sort()).toEqual(
+			[activeTourId.toHexString(), soldOutTourId.toHexString()].sort(),
+		);
+	});
+
+	it('returns zero rating and count when the agent has no public tours', async () => {
+		const tourIds = [activeTourId, soldOutTourId];
+		try {
+			await connection.collection('tours').updateMany({ _id: { $in: tourIds } }, { $set: { tourStatus: 'DRAFT' } });
+			const profile = await graphqlRequest<ProfileResponse>(profileQuery, { memberId: agentId });
+			expect(profile.errors).toBeUndefined();
+			expect(profile.data?.getMember).toMatchObject({
+				agentAverageRating: 0,
+				agentReviewCount: 0,
+				agentTourCount: 0,
+				recentTours: [],
+			});
+		} finally {
+			await connection.collection('tours').updateOne({ _id: activeTourId }, { $set: { tourStatus: 'ACTIVE' } });
+			await connection.collection('tours').updateOne({ _id: soldOutTourId }, { $set: { tourStatus: 'SOLD_OUT' } });
+		}
+	});
+
+	it('keeps agent-specific statistics absent from regular user profiles', async () => {
+		const profile = await graphqlRequest<ProfileResponse>(profileQuery, { memberId: userId });
+		expect(profile.errors).toBeUndefined();
+		expect(profile.data?.getMember).toMatchObject({
+			agentAverageRating: null,
+			agentReviewCount: null,
+			agentTourCount: null,
+			recentTours: [],
+		});
 	});
 
 	it('rejects a non-agent target and invalid agent ID', async () => {
