@@ -18,6 +18,7 @@ type StoredTour = {
 	tourAvailableSeats: number;
 	tourBookingCount: number;
 	tourStatus: string;
+	tourFeatured: boolean;
 	tourAvailableDates: Array<{ _id: Types.ObjectId; availableSeats: number }>;
 };
 type StoredBooking = { _id: Types.ObjectId; tourId: Types.ObjectId; bookingStatus: string };
@@ -180,6 +181,104 @@ describe('Booking lifecycle and availability (e2e)', () => {
 		}
 	});
 
+	it('resubmits an active tour, hides it publicly, and requires admin approval to publish again', async () => {
+		const tour = await createTour(2);
+		const pendingBooking = await createBooking(tour, 1);
+		await connection
+			.collection('tours')
+			.updateOne({ _id: new Types.ObjectId(tour.id) }, { $set: { tourFeatured: true } });
+		const resubmitted = await updateTour({ tourId: tour.id, tourStatus: 'PENDING', tourTitle: 'Resubmitted tour' });
+		expect(resubmitted.errors).toBeUndefined();
+		await expectSeats(tour, 2, 0, 'PENDING');
+		const stored = await connection.collection<StoredTour>('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+		expect(stored?.tourFeatured).toBe(false);
+		expect(stored?.tourAvailableDates[0]._id.toHexString()).toBe(tour.dateId);
+		const detail = await graphql('query Detail($tourId: String!) { getTour(tourId: $tourId) { _id } }', {
+			tourId: tour.id,
+		});
+		expect(detail.errors).toBeDefined();
+		const list = await graphql<{ getTours: { list: Array<{ _id: string }> } }>(
+			'query Tours($input: ToursInquiry!) { getTours(input: $input) { list { _id } } }',
+			{ input: { page: 1, limit: 100, search: {} } },
+		);
+		expect(list.errors).toBeUndefined();
+		expect(list.data?.getTours.list.some((item) => item._id === tour.id)).toBe(false);
+		expect((await bookingAction('confirmBooking', pendingBooking._id, agent.token)).errors).toBeDefined();
+		expect((await updateTour({ tourId: tour.id, tourStatus: 'ACTIVE' })).errors?.[0].extensions?.code).toBe(
+			'FORBIDDEN',
+		);
+		const published = await graphql(
+			'mutation Approve($input: TourAdminUpdate!) { updateTourByAdmin(input: $input) { _id tourStatus } }',
+			{ input: { tourId: tour.id, tourStatus: 'ACTIVE' } },
+			adminToken,
+		);
+		expect(published.errors).toBeUndefined();
+		expect((await bookingAction('confirmBooking', pendingBooking._id, agent.token)).errors).toBeUndefined();
+		await expectSeats(tour, 1, 1, 'ACTIVE');
+	});
+
+	it('rejects re-approval requests by other agents and preserves existing status restrictions', async () => {
+		const tour = await createTour(2);
+		expect((await updateTour({ tourId: tour.id, tourStatus: 'PENDING' }, otherAgent.token)).errors).toBeDefined();
+		expect(
+			(await updateTour({ tourId: tour.id, tourStatus: 'PENDING' }, user.token)).errors?.[0].extensions?.code,
+		).toBe('FORBIDDEN');
+		await expectSeats(tour, 2, 0, 'ACTIVE');
+		for (const status of ['SOLD_OUT', 'COMPLETED', 'CANCELLED']) {
+			const restricted = await createTour(status === 'SOLD_OUT' ? 0 : 2, status);
+			expect((await updateTour({ tourId: restricted.id, tourStatus: 'PENDING' })).errors?.[0].extensions?.code).toBe(
+				'FORBIDDEN',
+			);
+			await expectSeats(restricted, status === 'SOLD_OUT' ? 0 : 2, 0, status);
+		}
+	});
+
+	it('blocks re-approval for unpaid and paid confirmed bookings without stranding cancellation or refund', async () => {
+		for (const paid of [false, true]) {
+			const tour = await createTour(2);
+			const booking = await createBooking(tour, 1);
+			expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+			if (paid) expect((await bookingAction('payBooking', booking._id, user.token)).errors).toBeUndefined();
+			const blocked = await updateTour({ tourId: tour.id, tourStatus: 'PENDING' });
+			expect(blocked.errors?.[0].message).toBe('Cannot resubmit a tour with confirmed bookings.');
+			await expectSeats(tour, 1, 1, 'ACTIVE');
+			const cancelled = paid
+				? await inputAction(
+						'refundBookingByAdmin',
+						'BookingRefundInput',
+						{ bookingId: booking._id, refundReason: 'Test refund before re-approval' },
+						adminToken,
+					)
+				: await cancel(booking._id, user.token);
+			expect(cancelled.errors).toBeUndefined();
+			expect((await updateTour({ tourId: tour.id, tourStatus: 'PENDING' })).errors).toBeUndefined();
+			await expectSeats(tour, 2, 0, 'PENDING');
+		}
+	});
+
+	it('does not commit re-approval and booking confirmation together when they race', async () => {
+		for (let attempt = 0; attempt < 3; attempt++) {
+			const tour = await createTour(2);
+			const booking = await createBooking(tour, 1);
+			const [resubmitted, confirmed] = await Promise.all([
+				updateTour({ tourId: tour.id, tourStatus: 'PENDING' }),
+				bookingAction('confirmBooking', booking._id, agent.token),
+			]);
+			expect([resubmitted, confirmed].filter((result) => result.errors?.length)).toHaveLength(1);
+			expect([resubmitted, confirmed].filter((result) => result.data)).toHaveLength(1);
+			const stored = await connection
+				.collection<StoredBooking>('bookings')
+				.findOne({ _id: new Types.ObjectId(booking._id) });
+			if (resubmitted.data?.updateTour) {
+				await expectSeats(tour, 2, 0, 'PENDING');
+				expect(stored?.bookingStatus).toBe('PENDING');
+			} else {
+				await expectSeats(tour, 1, 1, 'ACTIVE');
+				expect(stored?.bookingStatus).toBe('CONFIRMED');
+			}
+		}
+	});
+
 	it('permits coherent availability edits before publication', async () => {
 		for (const status of ['DRAFT', 'PENDING']) {
 			const tour = await createTour(2, status);
@@ -303,11 +402,11 @@ describe('Booking lifecycle and availability (e2e)', () => {
 		);
 	}
 
-	function updateTour(input: Record<string, unknown>) {
+	function updateTour(input: Record<string, unknown>, token = agent.token) {
 		return graphql<{ updateTour: { _id: string } }>(
 			'mutation Update($input: TourUpdate!) { updateTour(input: $input) { _id } }',
 			{ input },
-			agent.token,
+			token,
 		);
 	}
 

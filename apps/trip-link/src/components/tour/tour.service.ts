@@ -19,6 +19,7 @@ import {
 import { FavoriteToggleResult, Tour, Tours } from '../../libs/dto/tour/tour';
 import { TourAdminUpdate, TourUpdate } from '../../libs/dto/tour/tour.update';
 import { Direction, Message } from '../../libs/enums/common.enum';
+import { BookingStatus } from '../../libs/enums/booking.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { TourStatus } from '../../libs/enums/tour.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
@@ -27,12 +28,14 @@ import { MemberService } from '../member/member.service';
 import { ViewService } from '../view/view.service';
 
 type TourDocumentShape = Tour & { __v?: number };
+type TourBookingRecord = { tourId: Types.ObjectId; bookingStatus: BookingStatus };
 const PUBLIC_TOUR_STATUSES = [TourStatus.ACTIVE, TourStatus.SOLD_OUT];
 
 @Injectable()
 export class TourService {
 	constructor(
 		@InjectModel('Tour') private readonly tourModel: Model<TourDocumentShape>,
+		@InjectModel('Booking') private readonly bookingModel: Model<TourBookingRecord>,
 		private readonly favoriteService: FavoriteService,
 		private readonly memberService: MemberService,
 		private readonly viewService: ViewService,
@@ -154,6 +157,9 @@ export class TourService {
 			mergedTour.tourStatus,
 		);
 		this.validateTourBusinessRules(mergedTour, requirePublishable);
+		if (existingTour.tourStatus === TourStatus.ACTIVE && update.tourStatus === TourStatus.PENDING) {
+			return this.resubmitTour(agentId, input.tourId, update);
+		}
 
 		try {
 			const updatedTour = await this.tourModel
@@ -169,6 +175,43 @@ export class TourService {
 			return updatedTour;
 		} catch (error: unknown) {
 			this.rethrowUpdateError(error);
+		}
+	}
+
+	private async resubmitTour(
+		agentId: string,
+		tourId: string,
+		update: Partial<Omit<TourUpdate, 'tourId'>>,
+	): Promise<Tour> {
+		const session = await this.tourModel.db.startSession();
+		try {
+			const result = await session.withTransaction(async (): Promise<Tour> => {
+				const confirmedBooking = await this.bookingModel
+					.exists({ tourId: new Types.ObjectId(tourId), bookingStatus: BookingStatus.CONFIRMED })
+					.session(session)
+					.exec();
+				if (confirmedBooking) {
+					throw new ConflictException('Cannot resubmit a tour with confirmed bookings.');
+				}
+
+				// Booking confirmation also writes this tour, preventing both operations from committing together.
+				const updatedTour = await this.tourModel
+					.findOneAndUpdate(
+						{ _id: tourId, agentId, tourStatus: TourStatus.ACTIVE },
+						{ $set: { ...update, tourStatus: TourStatus.PENDING, tourFeatured: false } },
+						{ new: true, runValidators: true, session },
+					)
+					.lean<Tour>()
+					.exec();
+				if (!updatedTour) throw new ConflictException(Message.UPDATE_FAILED);
+				return updatedTour;
+			});
+			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
+		} catch (error: unknown) {
+			this.rethrowUpdateError(error);
+		} finally {
+			await session.endSession();
 		}
 	}
 
@@ -428,7 +471,7 @@ export class TourService {
 		const allowedTransitions: Partial<Record<TourStatus, TourStatus[]>> = {
 			[TourStatus.DRAFT]: [TourStatus.PENDING, TourStatus.CANCELLED],
 			[TourStatus.PENDING]: [TourStatus.DRAFT, TourStatus.CANCELLED],
-			[TourStatus.ACTIVE]: [TourStatus.CANCELLED],
+			[TourStatus.ACTIVE]: [TourStatus.PENDING, TourStatus.CANCELLED],
 			[TourStatus.SOLD_OUT]: [TourStatus.CANCELLED],
 		};
 
