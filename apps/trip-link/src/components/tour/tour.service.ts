@@ -141,6 +141,11 @@ export class TourService {
 		const requestedFields: Partial<TourUpdate> = { ...input };
 		delete requestedFields.tourId;
 		if (Object.keys(requestedFields).length === 0) throw new BadRequestException(Message.NO_UPDATE_FIELDS);
+		const changesAvailability =
+			requestedFields.tourAvailableDates !== undefined || requestedFields.tourAvailableSeats !== undefined;
+		if (changesAvailability && ![TourStatus.DRAFT, TourStatus.PENDING].includes(existingTour.tourStatus)) {
+			throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
+		}
 		this.validateAgentStatusTransition(existingTour.tourStatus, requestedFields.tourStatus);
 
 		const update = this.normalizeTourUpdate(requestedFields);
