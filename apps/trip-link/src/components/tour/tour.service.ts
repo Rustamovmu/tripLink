@@ -255,40 +255,61 @@ export class TourService {
 		delete (update as Partial<TourAdminUpdate>).tourId;
 		if (Object.keys(update).length === 0) throw new BadRequestException(Message.NO_UPDATE_FIELDS);
 
-		const existingTour = await this.tourModel.findById(input.tourId).lean().exec();
-		if (!existingTour) throw new NotFoundException(Message.NO_DATA_FOUND);
-		this.validateAdminStatusTransition(existingTour.tourStatus, update.tourStatus);
-		if (update.tourStatus && update.tourStatus !== TourStatus.ACTIVE) update.tourFeatured = false;
-
-		const mergedTour = { ...existingTour, ...update } as TourInput & {
-			tourStatus: TourStatus;
-			tourFeatured: boolean;
-		};
-		if (mergedTour.tourStatus === TourStatus.ACTIVE) {
-			this.validateTourBusinessRules(mergedTour, true);
-			if (mergedTour.tourAvailableSeats < 1) throw new BadRequestException(Message.BAD_REQUEST);
-		}
-		if (mergedTour.tourStatus === TourStatus.SOLD_OUT && mergedTour.tourAvailableSeats !== 0) {
-			throw new BadRequestException(Message.BAD_REQUEST);
-		}
-		if (mergedTour.tourFeatured && mergedTour.tourStatus !== TourStatus.ACTIVE) {
-			throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
-		}
-
+		const session = await this.tourModel.db.startSession();
 		try {
-			const updatedTour = await this.tourModel
-				.findOneAndUpdate(
-					{ _id: input.tourId, tourStatus: existingTour.tourStatus },
-					{ $set: update },
-					{ new: true, runValidators: true },
-				)
-				.lean<Tour>()
-				.exec();
+			const result = await session.withTransaction(async (): Promise<Tour> => {
+				const existingTour = await this.tourModel.findById(input.tourId).session(session).lean().exec();
+				if (!existingTour) throw new NotFoundException(Message.NO_DATA_FOUND);
+				this.validateAdminStatusTransition(existingTour.tourStatus, update.tourStatus);
+				if (update.tourStatus && update.tourStatus !== TourStatus.ACTIVE) update.tourFeatured = false;
 
-			if (!updatedTour) throw new ConflictException(Message.UPDATE_FAILED);
-			return updatedTour;
+				const mergedTour = { ...existingTour, ...update } as TourInput & {
+					tourStatus: TourStatus;
+					tourFeatured: boolean;
+				};
+				if (mergedTour.tourStatus === TourStatus.ACTIVE) {
+					this.validateTourBusinessRules(mergedTour, true);
+					if (mergedTour.tourAvailableSeats < 1) throw new BadRequestException(Message.BAD_REQUEST);
+				}
+				if (mergedTour.tourStatus === TourStatus.SOLD_OUT && mergedTour.tourAvailableSeats !== 0) {
+					throw new BadRequestException(Message.BAD_REQUEST);
+				}
+				if (mergedTour.tourFeatured && mergedTour.tourStatus !== TourStatus.ACTIVE) {
+					throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+				}
+
+				if (update.tourStatus === TourStatus.COMPLETED && existingTour.tourStatus !== TourStatus.COMPLETED) {
+					if (existingTour.tourAvailableDates.some((date) => date.endDate.getTime() > Date.now())) {
+						throw new ConflictException('Cannot complete a tour before all departures have ended.');
+					}
+					const unsettledBooking = await this.bookingModel
+						.exists({
+							tourId: new Types.ObjectId(input.tourId),
+							bookingStatus: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+						})
+						.session(session)
+						.exec();
+					if (unsettledBooking) throw new ConflictException('Cannot complete a tour with unsettled bookings.');
+				}
+
+				// Retry validation against a fresh snapshot if a concurrent operation writes this tour.
+				const updatedTour = await this.tourModel
+					.findOneAndUpdate(
+						{ _id: input.tourId, tourStatus: existingTour.tourStatus },
+						{ $set: update },
+						{ new: true, runValidators: true, session },
+					)
+					.lean<Tour>()
+					.exec();
+				if (!updatedTour) throw new ConflictException(Message.UPDATE_FAILED);
+				return updatedTour;
+			});
+			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
 		} catch (error: unknown) {
 			this.rethrowUpdateError(error);
+		} finally {
+			await session.endSession();
 		}
 	}
 

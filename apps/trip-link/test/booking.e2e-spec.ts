@@ -444,6 +444,152 @@ describe('Booking lifecycle and availability (e2e)', () => {
 		await expectSeats(tour, 1, 1, 'ACTIVE');
 	});
 
+	it('rejects admin completion while any departure is still running or upcoming', async () => {
+		for (const status of ['ACTIVE', 'SOLD_OUT']) {
+			const tour = await createTour(status === 'ACTIVE' ? 2 : 0, status);
+			const blocked = await adminUpdate({ tourId: tour.id, tourStatus: 'COMPLETED' });
+			expect(blocked.errors?.[0].message).toBe('Cannot complete a tour before all departures have ended.');
+			await expectSeats(tour, status === 'ACTIVE' ? 2 : 0, 0, status);
+		}
+	});
+
+	it('blocks admin completion for pending, unpaid confirmed, and paid confirmed bookings after departures end', async () => {
+		for (const state of ['PENDING', 'UNPAID', 'PAID']) {
+			const tour = await createTour(2);
+			const booking = await createBooking(tour, 1);
+			if (state !== 'PENDING') {
+				expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+			}
+			if (state === 'PAID') expect((await bookingAction('payBooking', booking._id, user.token)).errors).toBeUndefined();
+			await endDepartures(tour);
+			const blocked = await adminUpdate({ tourId: tour.id, tourStatus: 'COMPLETED', tourFeatured: true });
+			expect(blocked.errors?.[0].message).toBe('Cannot complete a tour with unsettled bookings.');
+			await expectSeats(tour, state === 'PENDING' ? 2 : 1, state === 'PENDING' ? 0 : 1, 'ACTIVE');
+			expect(await storedBooking(booking._id)).toMatchObject({
+				bookingStatus: state === 'PENDING' ? 'PENDING' : 'CONFIRMED',
+				paymentStatus: state === 'PAID' ? 'PAID' : 'UNPAID',
+			});
+		}
+	});
+
+	it('allows admin completion after departures end and bookings are settled without releasing consumed seats', async () => {
+		const tour = await createTour(1);
+		const booking = await createBooking(tour, 1);
+		expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+		expect((await bookingAction('payBooking', booking._id, user.token)).errors).toBeUndefined();
+		await endDepartures(tour);
+		await connection
+			.collection('bookings')
+			.updateOne(
+				{ _id: new Types.ObjectId(booking._id) },
+				{ $set: { selectedDate: new Date(Date.now() - 172800000), selectedEndDate: new Date(Date.now() - 86400000) } },
+			);
+		expect((await bookingAction('completeBooking', booking._id, agent.token)).errors).toBeUndefined();
+		expect((await adminUpdate({ tourId: tour.id, tourStatus: 'COMPLETED' })).errors).toBeUndefined();
+		await expectSeats(tour, 0, 1, 'COMPLETED');
+		expect(await storedBooking(booking._id)).toMatchObject({ bookingStatus: 'COMPLETED', paymentStatus: 'PAID' });
+		const emptyTour = await createTour(2);
+		await endDepartures(emptyTour);
+		expect((await adminUpdate({ tourId: emptyTour.id, tourStatus: 'COMPLETED' })).errors).toBeUndefined();
+		await expectSeats(emptyTour, 2, 0, 'COMPLETED');
+	});
+
+	it('requires an admin token for tour status changes', async () => {
+		const tour = await createTour(2);
+		for (const token of [user.token, agent.token]) {
+			expect(
+				(await adminUpdate({ tourId: tour.id, tourStatus: 'CANCELLED' }, token)).errors?.[0].extensions?.code,
+			).toBe('FORBIDDEN');
+		}
+		expect((await adminUpdate({ tourId: tour.id, tourStatus: 'CANCELLED' }, '')).errors?.[0].extensions?.code).toBe(
+			'UNAUTHENTICATED',
+		);
+		await expectSeats(tour, 2, 0, 'ACTIVE');
+	});
+
+	it('preserves manual cancellation and refund after admin tour cancellation', async () => {
+		for (const paid of [false, true]) {
+			const tour = await createTour(1);
+			const booking = await createBooking(tour, 1);
+			expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+			if (paid) expect((await bookingAction('payBooking', booking._id, user.token)).errors).toBeUndefined();
+			expect((await adminUpdate({ tourId: tour.id, tourStatus: 'CANCELLED' })).errors).toBeUndefined();
+			await expectSeats(tour, 0, 1, 'CANCELLED');
+			expect(await storedBooking(booking._id)).toMatchObject({
+				bookingStatus: 'CONFIRMED',
+				paymentStatus: paid ? 'PAID' : 'UNPAID',
+			});
+			const settled = paid
+				? await inputAction(
+						'refundBookingByAdmin',
+						'BookingRefundInput',
+						{ bookingId: booking._id, refundReason: 'Cancelled tour refund' },
+						adminToken,
+					)
+				: await cancel(booking._id, user.token);
+			expect(settled.errors).toBeUndefined();
+			await expectSeats(tour, 1, 0, 'CANCELLED');
+			expect(await storedBooking(booking._id)).toMatchObject({
+				bookingStatus: 'CANCELLED',
+				paymentStatus: paid ? 'REFUNDED' : 'UNPAID',
+			});
+		}
+	});
+
+	it('revalidates publication when a same-status availability edit commits after the admin read', async () => {
+		const tour = await createTour(2, 'PENDING');
+		const model = app.get<Model<StoredTour>>(getModelToken('Tour'));
+		const original = model.findOneAndUpdate.bind(model) as typeof model.findOneAndUpdate;
+		let editCommitted = false;
+		// Intercept scheduling only; both writes and the transaction retry use the real database.
+		const spy = jest
+			.spyOn(model, 'findOneAndUpdate')
+			.mockImplementationOnce((...args: Parameters<typeof model.findOneAndUpdate>) => {
+				const query = original(...args);
+				const execute = query.exec.bind(query) as typeof query.exec;
+				jest.spyOn(query, 'exec').mockImplementationOnce(async () => {
+					await connection
+						.collection('tours')
+						.updateOne(
+							{ _id: new Types.ObjectId(tour.id) },
+							{ $set: { tourAvailableSeats: 0, 'tourAvailableDates.0.availableSeats': 0 } },
+						);
+					editCommitted = true;
+					return execute();
+				});
+				return query;
+			});
+		try {
+			const published = await adminUpdate({ tourId: tour.id, tourStatus: 'ACTIVE' });
+			expect(editCommitted).toBe(true);
+			expect(published.errors?.[0].extensions?.code).toBe('BAD_REQUEST');
+			await expectSeats(tour, 0, 0, 'PENDING');
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	function adminUpdate(input: Record<string, unknown>, token = adminToken) {
+		return graphql<{ updateTourByAdmin: { _id: string; tourStatus: string } }>(
+			'mutation AdminUpdate($input: TourAdminUpdate!) { updateTourByAdmin(input: $input) { _id tourStatus } }',
+			{ input },
+			token,
+		);
+	}
+
+	async function endDepartures(tour: Fixture) {
+		// Only disposable records in tl_bk_e2e_* are adjusted and dropped with their counters afterward.
+		await connection.collection('tours').updateOne(
+			{ _id: new Types.ObjectId(tour.id) },
+			{
+				$set: {
+					'tourAvailableDates.0.startDate': new Date(Date.now() - 172800000),
+					'tourAvailableDates.0.endDate': new Date(Date.now() - 86400000),
+				},
+			},
+		);
+	}
+
 	async function signup(nick: string, role: MemberType): Promise<Actor> {
 		const result = await graphql<{ signup: { accessToken: string; member: { _id: string } } }>(
 			'mutation Signup($input: MemberInput!) { signup(input: $input) { accessToken member { _id } } }',
