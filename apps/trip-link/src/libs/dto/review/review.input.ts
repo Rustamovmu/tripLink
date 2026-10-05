@@ -238,3 +238,6 @@ export class AgentReviewsInquiry {
 	@Field(() => AgentReviewSearch)
 	search!: AgentReviewSearch;
 }
+
+@InputType()
+export class PublicAgentReviewsInquiry extends AgentReviewsInquiry {}

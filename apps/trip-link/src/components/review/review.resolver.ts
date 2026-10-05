@@ -4,6 +4,7 @@ import {
 	AgentReviewsInquiry,
 	AllReviewsInquiry,
 	MyReviewsInquiry,
+	PublicAgentReviewsInquiry,
 	ReviewInput,
 	TourReviewsInquiry,
 } from '../../libs/dto/review/review.input';
@@ -77,5 +78,14 @@ export class ReviewResolver {
 		@AuthMember('sub') agentId: string,
 	): Promise<Reviews> {
 		return this.reviewService.getAgentReviews(agentId, input);
+	}
+
+	@UseGuards(WithoutGuard)
+	@Query(() => Reviews)
+	public getPublicAgentReviews(
+		@Args('agentId') agentId: string,
+		@Args('input') input: PublicAgentReviewsInquiry,
+	): Promise<Reviews> {
+		return this.reviewService.getPublicAgentReviews(agentId, input);
 	}
 }

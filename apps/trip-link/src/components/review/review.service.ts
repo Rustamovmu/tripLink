@@ -12,6 +12,7 @@ import {
 	AgentReviewsInquiry,
 	AllReviewsInquiry,
 	MyReviewsInquiry,
+	PublicAgentReviewsInquiry,
 	ReviewInput,
 	TourReviewsInquiry,
 } from '../../libs/dto/review/review.input';
@@ -431,13 +432,59 @@ export class ReviewService {
 		return this.aggregateReviews(match, input, ['userData'], true, false);
 	}
 
+	public async getPublicAgentReviews(agentId: string, input: PublicAgentReviewsInquiry): Promise<Reviews> {
+		if (!isValidObjectId(agentId) || (input.search.tourId && !isValidObjectId(input.search.tourId))) {
+			throw new BadRequestException(Message.BAD_REQUEST);
+		}
+
+		const member = await this.memberService.getMember(agentId);
+		if (member.memberType !== MemberType.AGENT) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+		const match: Record<string, unknown> = {
+			agentId: new Types.ObjectId(agentId),
+			reviewStatus: ReviewStatus.ACTIVE,
+		};
+		if (input.search.reviewRating !== undefined) match.reviewRating = input.search.reviewRating;
+		if (input.search.tourId) match.tourId = new Types.ObjectId(input.search.tourId);
+
+		return this.aggregateReviews(match, input, ['userData'], true, false, true);
+	}
+
 	private async aggregateReviews(
 		match: Record<string, unknown>,
-		input: TourReviewsInquiry | AllReviewsInquiry | MyReviewsInquiry | AgentReviewsInquiry,
+		input: TourReviewsInquiry | AllReviewsInquiry | MyReviewsInquiry | AgentReviewsInquiry | PublicAgentReviewsInquiry,
 		memberDataFields: Array<'userData' | 'agentData'>,
 		includeTour: boolean,
 		includeModeration: boolean,
+		publicToursOnly = false,
 	): Promise<Reviews> {
+		const publicTourStages: PipelineStage[] = publicToursOnly
+			? [
+					{
+						$lookup: {
+							from: 'tours',
+							let: { reviewTourId: '$tourId', reviewAgentId: '$agentId' },
+							pipeline: [
+								{
+									$match: {
+										$expr: {
+											$and: [
+												{ $eq: ['$_id', '$$reviewTourId'] },
+												{ $eq: ['$agentId', '$$reviewAgentId'] },
+												{ $in: ['$tourStatus', [TourStatus.ACTIVE, TourStatus.SOLD_OUT]] },
+											],
+										},
+									},
+								},
+								{ $project: { _id: 1 } },
+							],
+							as: 'publicTour',
+						},
+					},
+					{ $match: { 'publicTour.0': { $exists: true } } },
+					{ $unset: 'publicTour' },
+				]
+			: [];
 		const contextStages: Array<PipelineStage.Lookup | PipelineStage.Unwind | PipelineStage.Unset> = [];
 		if (!includeModeration) contextStages.push({ $unset: ['moderationReason', 'moderatedAt'] });
 		if (includeTour) {
@@ -483,6 +530,7 @@ export class ReviewService {
 		const [result] = await this.reviewModel
 			.aggregate<Reviews>([
 				{ $match: match },
+				...publicTourStages,
 				{ $sort: { [sortField]: sortDirection } },
 				{
 					$facet: {
