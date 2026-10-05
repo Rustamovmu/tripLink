@@ -175,7 +175,7 @@ describe('Public agent reviews (e2e)', () => {
 			agentId: userId,
 			input: { page: 1, limit: 10, search: {} },
 		});
-		expect(nonAgent.errors?.[0].extensions?.code).toBe('INTERNAL_SERVER_ERROR');
+		expect(nonAgent.errors?.[0].extensions?.code).toBe('NOT_FOUND');
 
 		const invalid = await graphqlRequest(reviewsQuery, {
 			agentId: 'invalid',

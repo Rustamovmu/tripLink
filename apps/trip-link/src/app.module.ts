@@ -8,36 +8,9 @@ import { GraphQLFormattedError } from 'graphql';
 import { AppResolver } from './app.resolver';
 import { ComponentsModule } from './components/components.module';
 import { DatabaseModule } from './database/database.module';
-
-type ErrorRecord = Record<string, unknown>;
+import { formatGraphQLError } from './libs/utils/graphql-error';
 
 const graphQLLogger = new Logger('GraphQL');
-
-const isErrorRecord = (value: unknown): value is ErrorRecord => typeof value === 'object' && value !== null;
-
-const getNestedValue = (value: unknown, path: string[]): unknown => {
-	let currentValue = value;
-
-	for (const key of path) {
-		if (!isErrorRecord(currentValue)) return undefined;
-		currentValue = currentValue[key];
-	}
-
-	return currentValue;
-};
-
-const getErrorMessage = (error: GraphQLFormattedError): string => {
-	const extensionMessage =
-		getNestedValue(error.extensions, ['exception', 'response', 'message']) ??
-		getNestedValue(error.extensions, ['response', 'message']) ??
-		getNestedValue(error.extensions, ['originalError', 'response', 'message']);
-
-	if (Array.isArray(extensionMessage)) {
-		return extensionMessage.filter((message): message is string => typeof message === 'string').join(', ');
-	}
-
-	return typeof extensionMessage === 'string' ? extensionMessage : error.message;
-};
 
 @Module({
 	imports: [
@@ -47,15 +20,10 @@ const getErrorMessage = (error: GraphQLFormattedError): string => {
 			playground: true,
 			uploads: false,
 			autoSchemaFile: true,
-			formatError: (error: GraphQLFormattedError): GraphQLFormattedError => {
-				const formattedError = {
-					message: getErrorMessage(error),
-					extensions: {
-						code: error.extensions?.code,
-					},
-				};
+			formatError: (error: GraphQLFormattedError, originalError: unknown): GraphQLFormattedError => {
+				const formattedError = formatGraphQLError(error, originalError);
 
-				graphQLLogger.error(`${String(formattedError.extensions.code)}: ${formattedError.message}`);
+				graphQLLogger.error(`${String(formattedError.extensions?.code)}: ${formattedError.message}`);
 				return formattedError;
 			},
 		}),

@@ -367,6 +367,7 @@ describe('Booking lifecycle and availability (e2e)', () => {
 			expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
 			if (paid) expect((await bookingAction('payBooking', booking._id, user.token)).errors).toBeUndefined();
 			const blocked = await updateTour({ tourId: tour.id, tourStatus: 'PENDING' });
+			expect(blocked.errors?.[0].extensions?.code).toBe('CONFLICT');
 			expect(blocked.errors?.[0].message).toBe('Cannot resubmit a tour with confirmed bookings.');
 			await expectSeats(tour, 1, 1, 'ACTIVE');
 			const cancelled = paid
@@ -448,6 +449,7 @@ describe('Booking lifecycle and availability (e2e)', () => {
 		for (const status of ['ACTIVE', 'SOLD_OUT']) {
 			const tour = await createTour(status === 'ACTIVE' ? 2 : 0, status);
 			const blocked = await adminUpdate({ tourId: tour.id, tourStatus: 'COMPLETED' });
+			expect(blocked.errors?.[0].extensions?.code).toBe('CONFLICT');
 			expect(blocked.errors?.[0].message).toBe('Cannot complete a tour before all departures have ended.');
 			await expectSeats(tour, status === 'ACTIVE' ? 2 : 0, 0, status);
 		}
@@ -463,6 +465,7 @@ describe('Booking lifecycle and availability (e2e)', () => {
 			if (state === 'PAID') expect((await bookingAction('payBooking', booking._id, user.token)).errors).toBeUndefined();
 			await endDepartures(tour);
 			const blocked = await adminUpdate({ tourId: tour.id, tourStatus: 'COMPLETED', tourFeatured: true });
+			expect(blocked.errors?.[0].extensions?.code).toBe('CONFLICT');
 			expect(blocked.errors?.[0].message).toBe('Cannot complete a tour with unsettled bookings.');
 			await expectSeats(tour, state === 'PENDING' ? 2 : 1, state === 'PENDING' ? 0 : 1, 'ACTIVE');
 			expect(await storedBooking(booking._id)).toMatchObject({
