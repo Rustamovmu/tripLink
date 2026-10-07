@@ -28,11 +28,7 @@ export class AuthGuard implements CanActivate {
 			throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
 		}
 
-		try {
-			request.authMember = await this.authService.verifyToken(token);
-			return true;
-		} catch {
-			throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
-		}
+		request.authMember = await this.authService.verifyToken(token);
+		return true;
 	}
 }

@@ -33,6 +33,7 @@ describe('Follow GraphQL API (e2e)', () => {
 	let app: INestApplication;
 	let connection: Connection;
 	let originalMongoDev: string | undefined;
+	let testDatabase: string;
 	let user: AuthMember;
 	let userToken: string;
 	let agent: AuthMember;
@@ -53,11 +54,13 @@ describe('Follow GraphQL API (e2e)', () => {
 	`;
 
 	beforeAll(async () => {
+		if (process.env.NODE_ENV === 'production') throw new Error('Follow tests cannot run in production');
 		originalMongoDev = process.env.MONGO_DEV;
 		if (!originalMongoDev) throw new Error('MONGO_DEV is required for Follow e2e tests');
 
 		const mongoUrl = new URL(originalMongoDev);
-		mongoUrl.pathname = `/trip_link_follow_e2e_${Date.now()}`;
+		testDatabase = `tl_follow_e2e_${new Types.ObjectId().toHexString()}`;
+		mongoUrl.pathname = `/${testDatabase}`;
 		process.env.MONGO_DEV = mongoUrl.toString();
 
 		const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -72,6 +75,7 @@ describe('Follow GraphQL API (e2e)', () => {
 		await app.init();
 
 		connection = app.get<Connection>(getConnectionToken());
+		if (connection.name !== testDatabase) throw new Error('Unexpected test database');
 		const suffix = new Types.ObjectId().toHexString().slice(-8);
 		const userAuth = await signup(`user-${suffix}`, `user-${suffix}@example.com`, MemberType.USER);
 		const agentAuth = await signup(`agent-${suffix}`, `agent-${suffix}@example.com`, MemberType.AGENT);
@@ -80,19 +84,30 @@ describe('Follow GraphQL API (e2e)', () => {
 		agent = agentAuth.member;
 		agentToken = agentAuth.accessToken;
 
-		const authService = app.get(AuthService);
-		adminToken = await authService.createToken({
-			_id: new Types.ObjectId().toHexString(),
+		const adminId = new Types.ObjectId();
+		// Real disposable admin account; no development member is promoted or modified.
+		await connection.collection('members').insertOne({
+			_id: adminId,
+			memberType: MemberType.ADMIN,
+			memberStatus: 'ACTIVE',
+			memberNick: `admin-${suffix}`,
+			memberPassword: await app.get(AuthService).hashPassword('TestPass123!'),
+		});
+		adminToken = await app.get(AuthService).createToken({
+			_id: adminId,
 			memberType: MemberType.ADMIN,
 			memberNick: `admin-${suffix}`,
 		});
 	});
 
 	afterAll(async () => {
-		if (connection) await connection.dropDatabase();
-		if (app) await app.close();
-		if (originalMongoDev) process.env.MONGO_DEV = originalMongoDev;
-		else delete process.env.MONGO_DEV;
+		try {
+			if (connection && connection.name === testDatabase) await connection.dropDatabase();
+		} finally {
+			if (app) await app.close();
+			if (originalMongoDev) process.env.MONGO_DEV = originalMongoDev;
+			else delete process.env.MONGO_DEV;
+		}
 	});
 
 	it('enforces authentication, role access, and self-follow prevention', async () => {
@@ -158,14 +173,18 @@ describe('Follow GraphQL API (e2e)', () => {
 			recentTours: [],
 		});
 
+		const activeTourId = new Types.ObjectId();
+		const soldOutTourId = new Types.ObjectId();
 		await connection.collection('tours').insertMany([
 			{
+				_id: activeTourId,
 				agentId: new Types.ObjectId(agent._id),
 				tourSlug: 'profile-active',
 				tourStatus: 'ACTIVE',
 				createdAt: new Date('2026-01-01'),
 			},
 			{
+				_id: soldOutTourId,
 				agentId: new Types.ObjectId(agent._id),
 				tourSlug: 'profile-sold-out',
 				tourStatus: 'SOLD_OUT',
@@ -182,18 +201,21 @@ describe('Follow GraphQL API (e2e)', () => {
 			{
 				agentId: new Types.ObjectId(agent._id),
 				bookingId: new Types.ObjectId(),
+				tourId: activeTourId,
 				reviewStatus: 'ACTIVE',
 				reviewRating: 4,
 			},
 			{
 				agentId: new Types.ObjectId(agent._id),
 				bookingId: new Types.ObjectId(),
+				tourId: soldOutTourId,
 				reviewStatus: 'ACTIVE',
 				reviewRating: 5,
 			},
 			{
 				agentId: new Types.ObjectId(agent._id),
 				bookingId: new Types.ObjectId(),
+				tourId: activeTourId,
 				reviewStatus: 'HIDDEN',
 				reviewRating: 1,
 			},

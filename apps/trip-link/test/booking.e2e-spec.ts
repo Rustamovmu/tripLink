@@ -71,8 +71,17 @@ describe('Booking lifecycle and availability (e2e)', () => {
 		otherUser = await signup(`other-user-${suffix}`, MemberType.USER);
 		agent = await signup(`agent-${suffix}`, MemberType.AGENT);
 		otherAgent = await signup(`other-agent-${suffix}`, MemberType.AGENT);
+		const adminId = new Types.ObjectId();
+		// Real disposable admin account; no development member is promoted or modified.
+		await connection.collection('members').insertOne({
+			_id: adminId,
+			memberType: MemberType.ADMIN,
+			memberStatus: 'ACTIVE',
+			memberNick: `admin-${suffix}`,
+			memberPassword: await app.get(AuthService).hashPassword('TestPass123!'),
+		});
 		adminToken = await app.get(AuthService).createToken({
-			_id: new Types.ObjectId().toHexString(),
+			_id: adminId,
 			memberType: MemberType.ADMIN,
 			memberNick: `admin-${suffix}`,
 		});
