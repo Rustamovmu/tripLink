@@ -44,6 +44,7 @@ export class TourResolver {
 		return this.tourService.updateTour(agentId, input);
 	}
 
+	@UseGuards(WithoutGuard)
 	@Query(() => Tours)
 	public getTours(@Args('input') input: ToursInquiry): Promise<Tours> {
 		return this.tourService.getTours(input);

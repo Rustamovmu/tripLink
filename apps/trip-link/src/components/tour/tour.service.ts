@@ -139,7 +139,9 @@ export class TourService {
 		}
 		this.validateAgentStatusTransition(existingTour.tourStatus, requestedFields.tourStatus);
 
-		const update = this.normalizeTourUpdate(requestedFields);
+		const update: Partial<Omit<TourUpdate, 'tourId'>> & { tourFeatured?: boolean } =
+			this.normalizeTourUpdate(requestedFields);
+		if (update.tourStatus === TourStatus.CANCELLED) update.tourFeatured = false;
 		const mergedTour = { ...existingTour, ...update } as TourInput & { tourStatus: TourStatus };
 		const requirePublishable = [TourStatus.PENDING, TourStatus.ACTIVE, TourStatus.SOLD_OUT].includes(
 			mergedTour.tourStatus,
@@ -376,7 +378,7 @@ export class TourService {
 			.aggregate<Tours>([
 				{ $match: match },
 				{ $addFields: { effectiveTourPrice: { $ifNull: ['$tourDiscountPrice', '$tourPrice'] } } },
-				{ $sort: { [sortField]: sortDirection } },
+				{ $sort: { [sortField]: sortDirection, _id: sortDirection } },
 				{
 					$facet: {
 						list: [

@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { Field, Float, InputType, Int } from '@nestjs/graphql';
 import {
 	ArrayMaxSize,
@@ -61,6 +61,7 @@ export class TourItineraryItemInput {
 
 @InputType()
 export class TourInput {
+	@Transform(({ value }: { value: unknown }): unknown => (typeof value === 'string' ? value.trim() : value))
 	@IsString()
 	@Length(5, 150)
 	@Field(() => String)
