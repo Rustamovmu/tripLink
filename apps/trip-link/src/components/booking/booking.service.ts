@@ -638,13 +638,43 @@ export class BookingService {
 				const booking = await this.bookingModel
 					.findOne({
 						_id: input.bookingId,
-						bookingStatus: BookingStatus.CONFIRMED,
+						bookingStatus: { $in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED] },
 						paymentStatus: PaymentStatus.PAID,
 					})
 					.session(session)
 					.lean<BookingDocumentShape>()
 					.exec();
 				if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
+
+				if (booking.bookingStatus === BookingStatus.COMPLETED) {
+					// Serialize eligibility with tour writes without changing consumed capacity or public timestamps.
+					const eligibleTour = await this.tourModel
+						.updateOne(
+							{ _id: booking.tourId, tourStatus: { $in: [TourStatus.CANCELLED] } },
+							{ $inc: { __v: 1 } },
+							{ session, timestamps: false },
+						)
+						.exec();
+					if (eligibleTour.matchedCount !== 1) throw new ConflictException(Message.UPDATE_FAILED);
+
+					const refundedBooking = await this.bookingModel
+						.findOneAndUpdate(
+							{ _id: booking._id, bookingStatus: BookingStatus.COMPLETED, paymentStatus: PaymentStatus.PAID },
+							{
+								$set: {
+									paymentStatus: PaymentStatus.REFUNDED,
+									refundReference: this.generateRefundReference(),
+									refundReason,
+									refundedAt: new Date(),
+								},
+							},
+							{ new: true, runValidators: true, session },
+						)
+						.lean<Booking>()
+						.exec();
+					if (!refundedBooking) throw new ConflictException(Message.UPDATE_FAILED);
+					return refundedBooking;
+				}
 
 				const updatedTour = await this.tourModel
 					.findOneAndUpdate(

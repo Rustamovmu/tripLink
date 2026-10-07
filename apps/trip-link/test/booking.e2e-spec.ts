@@ -837,8 +837,11 @@ describe('Booking lifecycle and availability (e2e)', () => {
 		expect(after?.updatedAt).toEqual(before?.updatedAt);
 		expect(after?.__v).toBe((before?.__v ?? 0) + 1);
 		expect((await adminUpdate({ tourId: tour.id, tourStatus: 'CANCELLED' })).errors).toBeUndefined();
-		// Historical completed bookings are outside the confirmed-booking refund policy.
-		expect((await refund(booking._id)).errors).toBeDefined();
+		// A financial correction preserves the completed trip and consumed capacity.
+		expect((await refund(booking._id)).data?.refundBookingByAdmin).toMatchObject({
+			bookingStatus: 'COMPLETED',
+			paymentStatus: 'REFUNDED',
+		});
 		await expectSeats(tour, 0, 1, 'CANCELLED');
 	});
 
@@ -892,7 +895,7 @@ describe('Booking lifecycle and availability (e2e)', () => {
 				jest.spyOn(query, 'exec').mockImplementationOnce(async () => {
 					await connection
 						.collection('bookings')
-						.updateOne({ _id: new Types.ObjectId(booking._id) }, { $set: { bookingStatus: 'COMPLETED' } });
+						.updateOne({ _id: new Types.ObjectId(booking._id) }, { $set: { paymentStatus: 'UNPAID' } });
 					changed = true;
 					return execute();
 				});
@@ -907,6 +910,126 @@ describe('Booking lifecycle and availability (e2e)', () => {
 			spy.mockRestore();
 		}
 	});
+
+	it('refunds a completed booking once while preserving trip, payment history, reviews and counters', async () => {
+		const { tour, booking } = await completedFixture();
+		const review = await graphql<{ createReview: { _id: string } }>(
+			'mutation Review($input: ReviewInput!) { createReview(input: $input) { _id } }',
+			{ input: { bookingId: booking._id, reviewRating: 4, reviewComment: 'Completed trip review' } },
+			user.token,
+		);
+		expect(review.errors).toBeUndefined();
+		expect((await adminUpdate({ tourId: tour.id, tourStatus: 'CANCELLED' })).errors).toBeUndefined();
+		const before = await connection.collection('bookings').findOne({ _id: new Types.ObjectId(booking._id) });
+		const tourBefore = await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+		const reviewBefore = await connection.collection('reviews').findOne({ bookingId: new Types.ObjectId(booking._id) });
+		const membersBefore = await connection.collection('members').find({}).sort({ _id: 1 }).toArray();
+		for (const token of [user.token, agent.token, '']) {
+			expect((await refund(booking._id, token)).errors).toBeDefined();
+		}
+		expect(await connection.collection('bookings').findOne({ _id: new Types.ObjectId(booking._id) })).toEqual(before);
+		const results = await Promise.all([refund(booking._id), refund(booking._id)]);
+		expect(results.filter((result) => result.data?.refundBookingByAdmin)).toHaveLength(1);
+		const after = await connection.collection('bookings').findOne({ _id: new Types.ObjectId(booking._id) });
+		expect(after).toMatchObject({
+			bookingStatus: 'COMPLETED',
+			paymentStatus: 'REFUNDED',
+			refundReason: 'Cancelled departure refund',
+		});
+		expect(after?.refundReference).toEqual(expect.any(String));
+		expect(after?.refundedAt).toBeInstanceOf(Date);
+		// Compare every historical field, allowing only the financial correction and update timestamp.
+		const financialFields = ['paymentStatus', 'refundReference', 'refundReason', 'refundedAt', 'updatedAt'];
+		const history = (record: Record<string, unknown> | null) =>
+			Object.fromEntries(Object.entries(record ?? {}).filter(([key]) => !financialFields.includes(key)));
+		expect(history(after)).toEqual(history(before));
+		expect(await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) })).toEqual({
+			...tourBefore,
+			__v: Number(tourBefore?.__v ?? 0) + 1,
+		});
+		expect(await connection.collection('reviews').findOne({ bookingId: new Types.ObjectId(booking._id) })).toEqual(
+			reviewBefore,
+		);
+		expect(await connection.collection('members').find({}).sort({ _id: 1 }).toArray()).toEqual(membersBefore);
+		expect((await refund(booking._id)).errors?.[0].extensions?.code).toBe('NOT_FOUND');
+		expect(await connection.collection('bookings').findOne({ _id: new Types.ObjectId(booking._id) })).toEqual(after);
+		await expectSeats(tour, 1, 1, 'CANCELLED');
+	});
+
+	it('rejects new reviews after a completed-booking refund', async () => {
+		const { tour, booking } = await completedFixture();
+		expect((await adminUpdate({ tourId: tour.id, tourStatus: 'CANCELLED' })).errors).toBeUndefined();
+		expect((await refund(booking._id)).errors).toBeUndefined();
+		const tourBefore = await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+		const memberBefore = await connection.collection('members').findOne({ _id: new Types.ObjectId(user.id) });
+		const result = await graphql(
+			'mutation Review($input: ReviewInput!) { createReview(input: $input) { _id } }',
+			{ input: { bookingId: booking._id, reviewRating: 4, reviewComment: 'Refunded completed trip' } },
+			user.token,
+		);
+		expect(result.errors?.[0].extensions?.code).toBe('NOT_FOUND');
+		expect(await connection.collection('reviews').countDocuments({ bookingId: new Types.ObjectId(booking._id) })).toBe(
+			0,
+		);
+		expect(await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) })).toEqual(tourBefore);
+		expect(await connection.collection('members').findOne({ _id: new Types.ObjectId(user.id) })).toEqual(memberBefore);
+	});
+
+	it('rejects completed-booking refunds on every other tour status or a missing tour without side effects', async () => {
+		for (const status of ['DRAFT', 'PENDING', 'ACTIVE', 'SOLD_OUT', 'COMPLETED', 'MISSING']) {
+			const { tour, booking } = await completedFixture();
+			// Inject unsupported/missing tour states only in the disposable test database.
+			if (status === 'MISSING') await connection.collection('tours').deleteOne({ _id: new Types.ObjectId(tour.id) });
+			else
+				await connection
+					.collection('tours')
+					.updateOne({ _id: new Types.ObjectId(tour.id) }, { $set: { tourStatus: status } });
+			const before = await connection.collection('bookings').findOne({ _id: new Types.ObjectId(booking._id) });
+			const tourBefore = await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+			expect((await refund(booking._id)).errors?.[0].extensions?.code).toBe('CONFLICT');
+			expect(await connection.collection('bookings').findOne({ _id: new Types.ObjectId(booking._id) })).toEqual(before);
+			expect(await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) })).toEqual(tourBefore);
+		}
+	});
+
+	it('rolls back the completed-refund tour write when the final booking write loses eligibility', async () => {
+		const { tour, booking } = await completedFixture();
+		expect((await adminUpdate({ tourId: tour.id, tourStatus: 'CANCELLED' })).errors).toBeUndefined();
+		const before = await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+		const model = app.get<Model<StoredBooking>>(getModelToken('Booking'));
+		const original = model.findOneAndUpdate.bind(model) as typeof model.findOneAndUpdate;
+		let changed = false;
+		// Real competing fixture write for fault injection; API responses are not mocked.
+		const spy = jest
+			.spyOn(model, 'findOneAndUpdate')
+			.mockImplementationOnce((...args: Parameters<typeof model.findOneAndUpdate>) => {
+				const query = original(...args);
+				const execute = query.exec.bind(query) as typeof query.exec;
+				jest.spyOn(query, 'exec').mockImplementationOnce(async () => {
+					await connection
+						.collection('bookings')
+						.updateOne({ _id: new Types.ObjectId(booking._id) }, { $set: { paymentStatus: 'UNPAID' } });
+					changed = true;
+					return execute();
+				});
+				return query;
+			});
+		try {
+			expect((await refund(booking._id)).errors).toBeDefined();
+			expect(changed).toBe(true);
+			expect(await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) })).toEqual(before);
+			expect((await storedBooking(booking._id))?.refundReference).toBeUndefined();
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	async function completedFixture() {
+		const fixture = await paidFixture();
+		await expireDates(fixture.tour, fixture.booking._id);
+		expect((await bookingAction('completeBooking', fixture.booking._id, agent.token)).errors).toBeUndefined();
+		return fixture;
+	}
 
 	async function paidFixture(seats = 2) {
 		const tour = await createTour(seats);
