@@ -32,16 +32,19 @@ const BoardArticleSchema = new Schema(
 		articleLikes: {
 			type: Number,
 			default: 0,
+			min: 0,
 		},
 
 		articleViews: {
 			type: Number,
 			default: 0,
+			min: 0,
 		},
 
 		articleComments: {
 			type: Number,
 			default: 0,
+			min: 0,
 		},
 
 		memberId: {
@@ -52,5 +55,8 @@ const BoardArticleSchema = new Schema(
 	},
 	{ timestamps: true, collection: 'boardArticles' },
 );
+
+BoardArticleSchema.index({ articleStatus: 1, createdAt: -1, _id: -1 });
+BoardArticleSchema.index({ memberId: 1, createdAt: -1, _id: -1 });
 
 export default BoardArticleSchema;

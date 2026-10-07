@@ -35,6 +35,8 @@ export const availableBookingSorts = ['createdAt', 'updatedAt', 'selectedDate', 
 
 export const availableReviewSorts = ['createdAt', 'updatedAt', 'reviewRating'] as const;
 
+export const availableBoardArticleSorts = ['createdAt', 'updatedAt', 'articleLikes', 'articleViews'] as const;
+
 /** IMAGE CONFIGURATION **/
 
 export const uploadTargets = ['member', 'tour', 'article'] as const;
