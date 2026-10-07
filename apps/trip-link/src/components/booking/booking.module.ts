@@ -6,6 +6,7 @@ import { AuthModule } from '../auth/auth.module';
 import { MemberModule } from '../member/member.module';
 import { BookingResolver } from './booking.resolver';
 import { BookingService } from './booking.service';
+import { BookingExpiryModule } from './booking-expiry.module';
 
 @Module({
 	imports: [
@@ -15,6 +16,7 @@ import { BookingService } from './booking.service';
 		]),
 		AuthModule,
 		MemberModule,
+		BookingExpiryModule,
 	],
 	providers: [BookingResolver, BookingService],
 	exports: [BookingService],

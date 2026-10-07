@@ -32,5 +32,6 @@ const BookingSchema = new Schema(
 BookingSchema.index({ userId: 1, bookingStatus: 1, selectedDate: 1 });
 BookingSchema.index({ agentId: 1, bookingStatus: 1, selectedDate: 1 });
 BookingSchema.index({ tourId: 1, selectedDate: 1 });
+BookingSchema.index({ paymentStatus: 1, bookingStatus: 1, selectedDate: 1, _id: 1 });
 
 export default BookingSchema;
