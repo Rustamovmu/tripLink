@@ -44,6 +44,13 @@ export class BookingResolver {
 		return this.bookingService.cancelBooking(userId, input);
 	}
 
+	@Roles(MemberType.ADMIN)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Booking)
+	public expireBookingByAdmin(@Args('bookingId') bookingId: string): Promise<Booking> {
+		return this.bookingService.expireBookingByAdmin(bookingId);
+	}
+
 	@Roles(MemberType.USER)
 	@UseGuards(RolesGuard)
 	@Query(() => Bookings)

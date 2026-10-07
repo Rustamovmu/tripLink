@@ -31,6 +31,7 @@ type StoredBooking = {
 	paymentReference?: string;
 	paidAt?: Date;
 	refundReference?: string;
+	cancelledAt?: Date;
 };
 // Narrow Mongoose's overloaded method to the signature intercepted in the eligibility-write test.
 type TourEligibilityModel = {
@@ -580,6 +581,218 @@ describe('Booking lifecycle and availability (e2e)', () => {
 			spy.mockRestore();
 		}
 	});
+
+	it('expires unpaid pending bookings without changing seats or member counters', async () => {
+		const tour = await createTour(2);
+		const booking = await createBooking(tour, 1);
+		await expireDates(tour, booking._id);
+		const memberBefore = await connection.collection('members').findOne({ _id: new Types.ObjectId(user.id) });
+		expect((await expire(booking._id)).data?.expireBookingByAdmin).toMatchObject({
+			bookingStatus: 'CANCELLED',
+			paymentStatus: 'UNPAID',
+		});
+		expect(await storedBooking(booking._id)).toMatchObject({
+			cancellationReason: 'Expired unpaid booking after departure.',
+		});
+		expect((await storedBooking(booking._id))?.cancelledAt).toBeInstanceOf(Date);
+		await expectSeats(tour, 2, 0, 'ACTIVE');
+		expect(await connection.collection('members').findOne({ _id: new Types.ObjectId(user.id) })).toEqual(memberBefore);
+		expect((await expire(booking._id)).errors?.[0].extensions?.code).toBe('NOT_FOUND');
+		await expectSeats(tour, 2, 0, 'ACTIVE');
+	});
+
+	it('restores confirmed expiry seats once on active, sold-out, and cancelled tours', async () => {
+		for (const status of ['ACTIVE', 'SOLD_OUT', 'CANCELLED']) {
+			const tour = await createTour(status === 'SOLD_OUT' ? 1 : 2);
+			const booking = await createBooking(tour, 1);
+			expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+			if (status === 'CANCELLED')
+				expect((await adminUpdate({ tourId: tour.id, tourStatus: status })).errors).toBeUndefined();
+			await expireDates(tour, booking._id);
+			expect((await expire(booking._id)).errors).toBeUndefined();
+			await expectSeats(tour, status === 'SOLD_OUT' ? 1 : 2, 0, status === 'CANCELLED' ? 'CANCELLED' : 'ACTIVE');
+			expect((await expire(booking._id)).errors).toBeDefined();
+			await expectSeats(tour, status === 'SOLD_OUT' ? 1 : 2, 0, status === 'CANCELLED' ? 'CANCELLED' : 'ACTIVE');
+			if (status !== 'CANCELLED') {
+				const newBooking = await inputAction(
+					'createBooking',
+					'BookingInput',
+					{ tourId: tour.id, tourDateId: tour.dateId, numberOfPeople: 1 },
+					user.token,
+				);
+				expect(newBooking.errors).toBeDefined();
+			}
+		}
+	});
+
+	it('rejects future, paid, terminal, missing, and invalid expiry targets without changing records', async () => {
+		const tour = await createTour(2);
+		const booking = await createBooking(tour, 1);
+		const before = await storedBooking(booking._id);
+		expect((await expire(booking._id)).errors?.[0].extensions?.code).toBe('BAD_REQUEST');
+		expect(await storedBooking(booking._id)).toEqual(before);
+		expect((await expire('invalid')).errors?.[0].extensions?.code).toBe('BAD_REQUEST');
+		expect((await expire(new Types.ObjectId().toHexString())).errors?.[0].extensions?.code).toBe('NOT_FOUND');
+		expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+		expect((await bookingAction('payBooking', booking._id, user.token)).errors).toBeUndefined();
+		await expireDates(tour, booking._id);
+		for (const state of ['CONFIRMED', 'COMPLETED', 'CANCELLED', 'REJECTED']) {
+			await connection
+				.collection('bookings')
+				.updateOne(
+					{ _id: new Types.ObjectId(booking._id) },
+					{ $set: { bookingStatus: state, paymentStatus: state === 'CONFIRMED' ? 'PAID' : 'UNPAID' } },
+				);
+			const stored = await storedBooking(booking._id);
+			expect((await expire(booking._id)).errors?.[0].extensions?.code).toBe('NOT_FOUND');
+			expect(await storedBooking(booking._id)).toEqual(stored);
+			await expectSeats(tour, 1, 1, 'ACTIVE');
+		}
+	});
+
+	it('requires a current active admin token for expiry', async () => {
+		const tour = await createTour(2);
+		const booking = await createBooking(tour, 1);
+		await expireDates(tour, booking._id);
+		for (const token of [user.token, agent.token])
+			expect((await expire(booking._id, token)).errors?.[0].extensions?.code).toBe('FORBIDDEN');
+		expect((await expire(booking._id, '')).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
+		const admin = await connection.collection('members').findOne({ memberType: MemberType.ADMIN });
+		if (!admin) throw new Error('Missing disposable admin');
+		await connection.collection('members').updateOne({ _id: admin._id }, { $set: { memberStatus: 'BLOCK' } });
+		try {
+			expect((await expire(booking._id)).errors?.[0].extensions?.code).toBe('FORBIDDEN');
+			expect(await storedBooking(booking._id)).toMatchObject({ bookingStatus: 'PENDING' });
+			await expectSeats(tour, 2, 0, 'ACTIVE');
+		} finally {
+			await connection.collection('members').updateOne({ _id: admin._id }, { $set: { memberStatus: 'ACTIVE' } });
+		}
+	});
+
+	it('does not double-restore seats when expiry requests race', async () => {
+		const tour = await createTour(1);
+		const booking = await createBooking(tour, 1);
+		expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+		await expireDates(tour, booking._id);
+		const results = await Promise.all([expire(booking._id), expire(booking._id)]);
+		expect(results.filter((result) => result.data?.expireBookingByAdmin)).toHaveLength(1);
+		expect(results.filter((result) => result.errors?.length)).toHaveLength(1);
+		await expectSeats(tour, 1, 0, 'ACTIVE');
+	});
+
+	it('rejects missing departures, unsupported tour statuses, and inconsistent counters atomically', async () => {
+		for (const corruption of [
+			{ tourAvailableDates: [] },
+			{ tourBookingCount: 0 },
+			{ tourAvailableSeats: 10 },
+			{ tourStatus: 'COMPLETED' },
+		]) {
+			const tour = await createTour(2);
+			const booking = await createBooking(tour, 1);
+			expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+			await expireDates(tour, booking._id);
+			await connection.collection('tours').updateOne({ _id: new Types.ObjectId(tour.id) }, { $set: corruption });
+			const before = await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+			expect((await expire(booking._id)).errors?.[0].extensions?.code).toBe('CONFLICT');
+			expect(await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) })).toEqual(before);
+			expect(await storedBooking(booking._id)).toMatchObject({ bookingStatus: 'CONFIRMED', paymentStatus: 'UNPAID' });
+		}
+	});
+
+	it('allows tour completion after all expired unpaid bookings have been settled', async () => {
+		const tour = await createTour(2);
+		const booking = await createBooking(tour, 1);
+		expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+		await expireDates(tour, booking._id);
+		expect((await adminUpdate({ tourId: tour.id, tourStatus: 'COMPLETED' })).errors?.[0].extensions?.code).toBe(
+			'CONFLICT',
+		);
+		expect((await expire(booking._id)).errors).toBeUndefined();
+		expect((await adminUpdate({ tourId: tour.id, tourStatus: 'COMPLETED' })).errors).toBeUndefined();
+		await expectSeats(tour, 2, 0, 'COMPLETED');
+	});
+
+	it('rejects payment when expiry commits after the payment read and rolls back its eligibility write', async () => {
+		const tour = await createTour(2);
+		const booking = await createBooking(tour, 1);
+		expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+		const model = app.get<Model<StoredTour>>(getModelToken('Tour')) as unknown as TourEligibilityModel;
+		const original = model.updateOne.bind(model) as TourEligibilityModel['updateOne'];
+		let expired = false;
+		// Schedule real expiry during payment; no database write or response is mocked.
+		const spy = jest.spyOn(model, 'updateOne').mockImplementationOnce((filter, update, options) => {
+			const query = original(filter, update, options);
+			const execute = query.exec.bind(query) as typeof query.exec;
+			jest.spyOn(query, 'exec').mockImplementationOnce(async () => {
+				await expireDates(tour, booking._id);
+				expect((await expire(booking._id)).errors).toBeUndefined();
+				expired = true;
+				return execute();
+			});
+			return query;
+		});
+		try {
+			const result = await bookingAction('payBooking', booking._id, user.token);
+			expect(expired).toBe(true);
+			expect(result.errors).toBeDefined();
+			expect(await storedBooking(booking._id)).toMatchObject({ bookingStatus: 'CANCELLED', paymentStatus: 'UNPAID' });
+			expect((await storedBooking(booking._id))?.paymentReference).toBeUndefined();
+			await expectSeats(tour, 2, 0, 'ACTIVE');
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	it('rolls back restored seats when the booking changes before the final expiry write', async () => {
+		const tour = await createTour(1);
+		const booking = await createBooking(tour, 1);
+		expect((await bookingAction('confirmBooking', booking._id, agent.token)).errors).toBeUndefined();
+		await expireDates(tour, booking._id);
+		const before = await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) });
+		const model = app.get<Model<StoredBooking>>(getModelToken('Booking'));
+		const original = model.findOneAndUpdate.bind(model) as typeof model.findOneAndUpdate;
+		let changed = false;
+		// Inject a competing write to this disposable fixture after the transactional seat restoration.
+		// This is a real MongoDB write used for fault injection, not a simulated payment API response.
+		const spy = jest
+			.spyOn(model, 'findOneAndUpdate')
+			.mockImplementationOnce((...args: Parameters<typeof model.findOneAndUpdate>) => {
+				const query = original(...args);
+				const execute = query.exec.bind(query) as typeof query.exec;
+				jest.spyOn(query, 'exec').mockImplementationOnce(async () => {
+					await connection
+						.collection('bookings')
+						.updateOne({ _id: new Types.ObjectId(booking._id) }, { $set: { paymentStatus: 'PAID' } });
+					changed = true;
+					return execute();
+				});
+				return query;
+			});
+		try {
+			expect((await expire(booking._id)).errors).toBeDefined();
+			expect(changed).toBe(true);
+			expect(await connection.collection('tours').findOne({ _id: new Types.ObjectId(tour.id) })).toEqual(before);
+			expect(await storedBooking(booking._id)).toMatchObject({ bookingStatus: 'CONFIRMED', paymentStatus: 'PAID' });
+			expect((await storedBooking(booking._id))?.cancelledAt).toBeUndefined();
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	function expire(bookingId: string, token = adminToken) {
+		return bookingAction('expireBookingByAdmin', bookingId, token);
+	}
+
+	async function expireDates(tour: Fixture, bookingId: string) {
+		// Advance only this disposable fixture; all its records and counters are dropped afterward.
+		await endDepartures(tour);
+		await connection
+			.collection('bookings')
+			.updateOne(
+				{ _id: new Types.ObjectId(bookingId) },
+				{ $set: { selectedDate: new Date(Date.now() - 172800000), selectedEndDate: new Date(Date.now() - 86400000) } },
+			);
+	}
 
 	function adminUpdate(input: Record<string, unknown>, token = adminToken) {
 		return graphql<{ updateTourByAdmin: { _id: string; tourStatus: string } }>(
