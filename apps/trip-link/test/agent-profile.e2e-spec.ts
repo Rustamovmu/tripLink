@@ -15,7 +15,12 @@ type GraphQLResponse<T> = {
 describe('Public agent reviews (e2e)', () => {
 	let app: INestApplication;
 	let connection: Connection;
-	let originalMongoDev: string | undefined;
+	const originalMongoDev = process.env.MONGO_DEV;
+	const testDatabase = `tl_agent_e2e_${new Types.ObjectId().toHexString()}`;
+	const assertDatabase = () => {
+		if (connection.name !== testDatabase || !/^tl_agent_e2e_[a-f0-9]{24}$/.test(testDatabase))
+			throw new Error('Unexpected profile-test database');
+	};
 	let agentId: string;
 	let userId: string;
 	let activeTourId: Types.ObjectId;
@@ -42,18 +47,19 @@ describe('Public agent reviews (e2e)', () => {
 	};
 
 	beforeAll(async () => {
-		originalMongoDev = process.env.MONGO_DEV;
+		if (process.env.NODE_ENV === 'production') throw new Error('Profile tests cannot run in production');
 		if (!originalMongoDev) throw new Error('MONGO_DEV is required for agent profile e2e tests');
 
 		const mongoUrl = new URL(originalMongoDev);
-		mongoUrl.pathname = `/tl_agent_e2e_${Date.now()}`;
+		mongoUrl.pathname = `/${testDatabase}`;
 		process.env.MONGO_DEV = mongoUrl.toString();
 
 		const moduleFixture = await Test.createTestingModule({ imports: [AppModule] }).compile();
 		app = moduleFixture.createNestApplication();
 		app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
-		await app.init();
 		connection = app.get<Connection>(getConnectionToken());
+		assertDatabase();
+		await app.init();
 
 		const suffix = new Types.ObjectId().toHexString().slice(-8);
 		agentId = await signup(`agent-${suffix}`, `agent-${suffix}@example.com`, 'AGENT');
@@ -84,11 +90,17 @@ describe('Public agent reviews (e2e)', () => {
 
 	afterAll(async () => {
 		try {
-			if (connection) await connection.dropDatabase();
+			if (connection) {
+				assertDatabase();
+				await connection.dropDatabase();
+			}
 		} finally {
-			if (app) await app.close();
-			if (originalMongoDev) process.env.MONGO_DEV = originalMongoDev;
-			else delete process.env.MONGO_DEV;
+			try {
+				if (app) await app.close();
+			} finally {
+				if (originalMongoDev === undefined) delete process.env.MONGO_DEV;
+				else process.env.MONGO_DEV = originalMongoDev;
+			}
 		}
 	});
 
