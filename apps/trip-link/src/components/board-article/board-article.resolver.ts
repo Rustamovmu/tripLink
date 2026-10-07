@@ -82,7 +82,7 @@ export class BoardArticleResolver {
 	): Promise<BoardArticle> {
 		return this.articles.updateBoardArticle(input, memberId, true);
 	}
-	
+
 	@Roles(MemberType.ADMIN)
 	@UseGuards(RolesGuard)
 	@Mutation(() => BoardArticle)

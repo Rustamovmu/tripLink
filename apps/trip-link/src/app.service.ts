@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class AppService {
-  getHello(): string {
-    return 'Welcome to the Trip Link API!';
-  }
+	getHello(): string {
+		return 'Welcome to the Trip Link API!';
+	}
 }
