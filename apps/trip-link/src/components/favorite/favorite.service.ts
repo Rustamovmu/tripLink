@@ -60,7 +60,7 @@ export class FavoriteService {
 						'favoriteTour.tourStatus': { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT] },
 					},
 				},
-				{ $sort: { createdAt: -1 } },
+				{ $sort: { createdAt: -1, _id: -1 } },
 				{
 					$facet: {
 						list: [

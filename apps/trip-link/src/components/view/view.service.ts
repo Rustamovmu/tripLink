@@ -75,7 +75,7 @@ export class ViewService {
 						'visitedTour.tourStatus': { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT] },
 					},
 				},
-				{ $sort: { updatedAt: -1 } },
+				{ $sort: { updatedAt: -1, _id: -1 } },
 				{
 					$facet: {
 						list: [

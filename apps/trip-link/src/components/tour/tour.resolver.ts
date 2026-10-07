@@ -32,7 +32,8 @@ export class TourResolver {
 	@UseGuards(WithoutGuard)
 	@Query(() => Tour)
 	public getTour(@Args('tourId') tourId: string, @AuthMember() authMember: AuthTokenPayload | null): Promise<Tour> {
-		const viewerId = authMember?.memberType === MemberType.USER ? authMember.sub : null;
+		const viewerId =
+			authMember && [MemberType.USER, MemberType.AGENT].includes(authMember.memberType) ? authMember.sub : null;
 		return this.tourService.getTour(tourId, viewerId);
 	}
 
@@ -69,7 +70,7 @@ export class TourResolver {
 		return this.tourService.updateTourByAdmin(input);
 	}
 
-	@Roles(MemberType.USER)
+	@Roles(MemberType.USER, MemberType.AGENT)
 	@UseGuards(RolesGuard)
 	@Mutation(() => FavoriteToggleResult)
 	public toggleFavoriteTour(
@@ -79,7 +80,7 @@ export class TourResolver {
 		return this.tourService.toggleFavoriteTour(memberId, tourId);
 	}
 
-	@Roles(MemberType.USER)
+	@Roles(MemberType.USER, MemberType.AGENT)
 	@UseGuards(RolesGuard)
 	@Query(() => Tours)
 	public getFavoriteTours(
@@ -89,7 +90,7 @@ export class TourResolver {
 		return this.tourService.getFavoriteTours(memberId, input);
 	}
 
-	@Roles(MemberType.USER)
+	@Roles(MemberType.USER, MemberType.AGENT)
 	@UseGuards(RolesGuard)
 	@Query(() => Tours)
 	public getVisitedTours(
