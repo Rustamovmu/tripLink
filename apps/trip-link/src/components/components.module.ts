@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SocketModule } from '../socket/socket.module';
 import { BoardArticleModule } from './board-article/board-article.module';
 import { BookingModule } from './booking/booking.module';
 import { FollowModule } from './follow/follow.module';
@@ -7,6 +8,6 @@ import { ReviewModule } from './review/review.module';
 import { TourModule } from './tour/tour.module';
 
 @Module({
-	imports: [BoardArticleModule, BookingModule, FollowModule, MemberModule, ReviewModule, TourModule],
+	imports: [SocketModule, BoardArticleModule, BookingModule, FollowModule, MemberModule, ReviewModule, TourModule],
 })
 export class ComponentsModule {}

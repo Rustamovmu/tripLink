@@ -1,5 +1,6 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { WsAdapter } from '@nestjs/platform-ws';
 import * as express from 'express';
 import type { RequestHandler } from 'express';
 import * as graphqlUploadPackage from 'graphql-upload';
@@ -15,6 +16,7 @@ const graphqlUploadExpress = (
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule);
+	app.useWebSocketAdapter(new WsAdapter(app));
 	app.useGlobalPipes(
 		new ValidationPipe({
 			whitelist: true,
