@@ -5,6 +5,7 @@ import { ClientSession, Connection, Model, Types } from 'mongoose';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/components/auth/auth.service';
+import { BookingService } from './../src/components/booking/booking.service';
 import { MemberType } from './../src/libs/enums/member.enum';
 
 jest.setTimeout(30000);
@@ -1022,6 +1023,282 @@ describe('Booking lifecycle and availability (e2e)', () => {
 		} finally {
 			spy.mockRestore();
 		}
+	});
+
+	// Historical records are seeded only in the disposable database; these are live query tests,
+	// not mocked responses or lifecycle-transition tests.
+	describe('booking history visibility', () => {
+		let historyUser: Actor;
+		let historyAgent: Actor;
+		const fixtures: Array<{ tour: Fixture; id: string; status: string; payment: string; tourStatus: string }> = [];
+		type HistoryBooking = {
+			_id: string;
+			userId: string;
+			agentId: string;
+			bookingStatus: string;
+			paymentStatus: string;
+			unitPrice: number;
+			totalPrice: number;
+			selectedDate: string;
+			selectedEndDate: string;
+			paymentReference: string | null;
+			refundReference: string | null;
+			completedAt: string | null;
+			tourData: { _id: string; tourTitle: string; tourStatus: string } | null;
+			agentData: { _id: string; memberNick: string } | null;
+			userData: { _id: string; memberNick: string } | null;
+		};
+		type HistoryPage = { list: HistoryBooking[]; metaCounter: Array<{ total: number }> };
+
+		beforeAll(async () => {
+			const suffix = new Types.ObjectId().toHexString().slice(-8);
+			historyUser = await signup(`hist-user-${suffix}`, MemberType.USER);
+			historyAgent = await signup(`hist-agent-${suffix}`, MemberType.AGENT);
+			for (const [index, state] of [
+				['COMPLETED', 'PAID', 'COMPLETED'],
+				['COMPLETED', 'REFUNDED', 'CANCELLED'],
+				['CANCELLED', 'UNPAID', 'CANCELLED'],
+			].entries()) {
+				const [status, payment, tourStatus] = state;
+				const tour = await createTour(2, tourStatus);
+				const date = new Date(Date.now() - (10 - index) * 86400000);
+				await connection.collection('tours').updateOne(
+					{ _id: new Types.ObjectId(tour.id) },
+					{
+						$set: {
+							agentId: new Types.ObjectId(historyAgent.id),
+							tourAvailableSeats: status === 'COMPLETED' ? 1 : 2,
+							tourBookingCount: status === 'COMPLETED' ? 1 : 0,
+							'tourAvailableDates.0.availableSeats': status === 'COMPLETED' ? 1 : 2,
+							'tourAvailableDates.0.startDate': date,
+							'tourAvailableDates.0.endDate': new Date(date.getTime() + 86400000),
+						},
+					},
+				);
+				const id = new Types.ObjectId();
+				await app.get<Model<unknown>>(getModelToken('Booking')).create({
+					_id: id,
+					bookingCode: `HISTORY-${id.toHexString()}`,
+					userId: new Types.ObjectId(historyUser.id),
+					agentId: new Types.ObjectId(historyAgent.id),
+					tourId: new Types.ObjectId(tour.id),
+					tourDateId: new Types.ObjectId(tour.dateId),
+					selectedDate: date,
+					selectedEndDate: new Date(date.getTime() + 86400000),
+					numberOfPeople: 1,
+					unitPrice: 80,
+					totalPrice: 80,
+					bookingStatus: status,
+					paymentStatus: payment,
+					...(status === 'COMPLETED'
+						? {
+								completedAt: new Date(date.getTime() + 86400000),
+								paidAt: date,
+								paymentReference: `PAY-HISTORY-${index}`,
+							}
+						: {}),
+					...(payment === 'REFUNDED'
+						? {
+								refundReference: 'REF-HISTORY',
+								refundReason: 'Historical financial correction',
+								refundedAt: new Date(),
+							}
+						: {}),
+				});
+				fixtures.push({ tour, id: id.toHexString(), status, payment, tourStatus });
+			}
+		});
+
+		function history(action: string, token: string, input: Record<string, unknown> = {}) {
+			const type =
+				action === 'getMyBookings'
+					? 'MyBookingsInquiry'
+					: action === 'getAgentBookings'
+						? 'AgentBookingsInquiry'
+						: 'AllBookingsInquiry';
+			return graphql<Record<string, HistoryPage>>(
+				`query History($input: ${type}!) { ${action}(input: $input) { list {
+					_id userId agentId bookingStatus paymentStatus unitPrice totalPrice selectedDate selectedEndDate
+					paymentReference refundReference completedAt
+					tourData { _id tourTitle tourStatus } agentData { _id memberNick } userData { _id memberNick }
+				} metaCounter { total } } }`,
+				{ input: { page: 1, limit: 100, sort: 'selectedDate', direction: 'ASC', search: {}, ...input } },
+				token,
+			);
+		}
+
+		it('shows cancelled, completed and refunded history with financial snapshots to each authorized role', async () => {
+			for (const [action, token] of [
+				['getMyBookings', historyUser.token],
+				['getAgentBookings', historyAgent.token],
+				['getAllBookingsByAdmin', adminToken],
+			]) {
+				const result = await history(
+					action,
+					token,
+					action === 'getAllBookingsByAdmin' ? { search: { userId: historyUser.id } } : {},
+				);
+				expect(result.errors).toBeUndefined();
+				const page = result.data![action];
+				expect(page.metaCounter).toEqual([{ total: 3 }]);
+				expect(page.list.map((booking) => booking._id)).toEqual(fixtures.map((fixture) => fixture.id));
+				for (const [index, booking] of page.list.entries()) {
+					const fixture = fixtures[index];
+					expect(booking).toMatchObject({
+						userId: historyUser.id,
+						agentId: historyAgent.id,
+						bookingStatus: fixture.status,
+						paymentStatus: fixture.payment,
+						unitPrice: 80,
+						totalPrice: 80,
+						tourData: { _id: fixture.tour.id, tourStatus: fixture.tourStatus, tourTitle: 'Booking test tour' },
+					});
+					const stored = await connection.collection('bookings').findOne({ _id: new Types.ObjectId(fixture.id) });
+					expect(booking.selectedDate).toBe((stored?.selectedDate as Date).toISOString());
+					expect(booking.selectedEndDate).toBe((stored?.selectedEndDate as Date).toISOString());
+					if (fixture.status === 'COMPLETED') expect(booking.paymentReference).toBe(`PAY-HISTORY-${index}`);
+					if (fixture.payment === 'REFUNDED') expect(booking.refundReference).toBe('REF-HISTORY');
+					if (action !== 'getAgentBookings') expect(booking.agentData?._id).toBe(historyAgent.id);
+					if (action !== 'getMyBookings') expect(booking.userData?._id).toBe(historyUser.id);
+				}
+			}
+			for (const fixture of fixtures) {
+				expect(
+					(
+						await graphql('query Tour($tourId: String!) { getTour(tourId: $tourId) { _id } }', {
+							tourId: fixture.tour.id,
+						})
+					).errors?.[0].extensions?.code,
+				).toBe('NOT_FOUND');
+			}
+		});
+
+		it('enforces role boundaries and prevents another user or agent from seeing these bookings', async () => {
+			for (const [action, tokens] of [
+				['getMyBookings', [historyAgent.token, adminToken]],
+				['getAgentBookings', [historyUser.token, adminToken]],
+				['getAllBookingsByAdmin', [historyUser.token, historyAgent.token]],
+			] as Array<[string, string[]]>) {
+				for (const token of tokens)
+					expect((await history(action, token)).errors?.[0].extensions?.code).toBe('FORBIDDEN');
+				expect((await history(action, '')).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
+			}
+			const other = await history('getMyBookings', otherUser.token);
+			expect(other.errors).toBeUndefined();
+			expect(
+				other.data!.getMyBookings.list.some((booking) => fixtures.some((fixture) => fixture.id === booking._id)),
+			).toBe(false);
+			const otherAgentResult = await history('getAgentBookings', otherAgent.token, {
+				search: { tourId: fixtures[0].tour.id },
+			});
+			expect(otherAgentResult.data!.getAgentBookings).toEqual({ list: [], metaCounter: [] });
+		});
+
+		it('filters booking and payment states and paginates without changing total counts', async () => {
+			for (const [action, token] of [
+				['getMyBookings', historyUser.token],
+				['getAgentBookings', historyAgent.token],
+				['getAllBookingsByAdmin', adminToken],
+			]) {
+				const search = action === 'getAllBookingsByAdmin' ? { userId: historyUser.id, agentId: historyAgent.id } : {};
+				const filtered = await history(action, token, {
+					search: { ...search, bookingStatus: 'COMPLETED', paymentStatus: 'REFUNDED' },
+				});
+				expect(filtered.data![action].list.map((booking) => booking._id)).toEqual([fixtures[1].id]);
+				expect(filtered.data![action].metaCounter).toEqual([{ total: 1 }]);
+				for (const page of [1, 2, 3]) {
+					const result = await history(action, token, { page, limit: 2, search });
+					expect(result.data![action].list.map((booking) => booking._id)).toEqual(
+						fixtures.slice((page - 1) * 2, page * 2).map((fixture) => fixture.id),
+					);
+					expect(result.data![action].metaCounter).toEqual([{ total: 3 }]);
+				}
+			}
+			const agentFiltered = await history('getAgentBookings', historyAgent.token, {
+				search: { tourId: fixtures[1].tour.id },
+			});
+			expect(agentFiltered.data!.getAgentBookings.list.map((booking) => booking._id)).toEqual([fixtures[1].id]);
+			const adminFiltered = await history('getAllBookingsByAdmin', adminToken, {
+				search: { tourId: fixtures[1].tour.id },
+			});
+			expect(adminFiltered.data!.getAllBookingsByAdmin.metaCounter).toEqual([{ total: 1 }]);
+		});
+
+		it('preserves bookings and counts when related tours or members are missing', async () => {
+			const fixture = fixtures[0];
+			const tour = await connection.collection('tours').findOne({ _id: new Types.ObjectId(fixture.tour.id) });
+			const agentRecord = await connection.collection('members').findOne({ _id: new Types.ObjectId(historyAgent.id) });
+			const userRecord = await connection.collection('members').findOne({ _id: new Types.ObjectId(historyUser.id) });
+			try {
+				await connection.collection('tours').deleteOne({ _id: tour!._id });
+				await connection.collection('members').deleteOne({ _id: agentRecord!._id });
+				for (const [action, token] of [
+					['getMyBookings', historyUser.token],
+					['getAllBookingsByAdmin', adminToken],
+				]) {
+					const result = await history(
+						action,
+						token,
+						action === 'getAllBookingsByAdmin' ? { search: { userId: historyUser.id } } : {},
+					);
+					expect(result.errors).toBeUndefined();
+					expect(result.data![action].metaCounter).toEqual([{ total: 3 }]);
+					expect(result.data![action].list.find((booking) => booking._id === fixture.id)).toMatchObject({
+						tourData: null,
+						agentData: null,
+						totalPrice: 80,
+					});
+				}
+				await connection.collection('members').insertOne(agentRecord!);
+				await connection.collection('members').deleteOne({ _id: userRecord!._id });
+				const result = await history('getAgentBookings', historyAgent.token);
+				expect(result.errors).toBeUndefined();
+				expect(result.data!.getAgentBookings.metaCounter).toEqual([{ total: 3 }]);
+				expect(result.data!.getAgentBookings.list.find((booking) => booking._id === fixture.id)).toMatchObject({
+					tourData: null,
+					userData: null,
+					totalPrice: 80,
+				});
+			} finally {
+				// Restore these exact disposable fixtures even on assertion failure; the suite later drops all counters.
+				await connection.collection('tours').replaceOne({ _id: tour!._id }, tour!, { upsert: true });
+				await connection.collection('members').replaceOne({ _id: agentRecord!._id }, agentRecord!, { upsert: true });
+				await connection.collection('members').replaceOne({ _id: userRecord!._id }, userRecord!, { upsert: true });
+			}
+		});
+
+		it('strips private member fields from history lookups before GraphQL serialization', async () => {
+			const members = connection.collection('members');
+			for (const actor of [historyUser, historyAgent]) {
+				await members.updateOne(
+					{ _id: new Types.ObjectId(actor.id) },
+					{
+						$set: {
+							memberPhone: `PRIVATE-${actor.id}`,
+							memberPhoneCountryCode: '+82',
+							memberAddress: 'DISPOSABLE-PRIVATE-ADDRESS',
+						},
+					},
+				);
+			}
+			const result = await app
+				.get(BookingService)
+				.getAllBookingsByAdmin({ page: 1, limit: 10, search: { userId: historyUser.id } });
+			expect(result.list).toHaveLength(3);
+			for (const booking of result.list) {
+				for (const member of [booking.userData, booking.agentData]) {
+					expect(member).toBeDefined();
+					for (const field of [
+						'memberPassword',
+						'memberEmail',
+						'memberPhone',
+						'memberPhoneCountryCode',
+						'memberAddress',
+					])
+						expect(member).not.toHaveProperty(field);
+				}
+			}
+		});
 	});
 
 	async function completedFixture() {

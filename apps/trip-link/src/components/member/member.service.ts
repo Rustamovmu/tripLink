@@ -431,7 +431,8 @@ export class MemberService {
 		if (!isValidObjectId(memberId)) throw new BadRequestException(Message.BAD_REQUEST);
 		if (!session.inTransaction()) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
 
-		const match: Record<string, unknown> = { _id: memberId, memberType: MemberType.USER };
+		// Reviews remain moderatable after their author changes role or account status.
+		const match: Record<string, unknown> = { _id: memberId };
 		if (modifier === -1) match.memberReviews = { $gte: 1 };
 
 		const result = await this.memberModel.updateOne(match, { $inc: { memberReviews: modifier } }, { session }).exec();

@@ -107,25 +107,7 @@ export class ReviewService {
 					{ session },
 				);
 
-				const reviewCount = tour.tourReviewCount + 1;
-				const averageRating = Number(
-					((tour.tourAverageRating * tour.tourReviewCount + input.reviewRating) / reviewCount).toFixed(2),
-				);
-				const updatedTour = await this.tourModel
-					.updateOne(
-						{
-							_id: booking.tourId,
-							tourReviewCount: tour.tourReviewCount,
-							tourAverageRating: tour.tourAverageRating,
-						},
-						{
-							$set: { tourAverageRating: averageRating },
-							$inc: { tourReviewCount: 1 },
-						},
-						{ session, runValidators: true },
-					)
-					.exec();
-				if (updatedTour.matchedCount === 0) throw new ConflictException(Message.UPDATE_FAILED);
+				await this.syncTourReviewStats(booking.tourId, session);
 
 				await this.memberService.increaseMemberReviewCount(userId, session);
 				return createdReview.toObject() as unknown as Review;
