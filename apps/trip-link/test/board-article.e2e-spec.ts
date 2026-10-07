@@ -52,7 +52,8 @@ describe('Community articles (e2e)', () => {
 		await app.init();
 		connection = app.get<Connection>(getConnectionToken());
 		if (connection.name !== database) throw new Error('Unexpected article database');
-		for (const name of ['BoardArticle', 'Like', 'View']) await app.get<Model<unknown>>(getModelToken(name)).init();
+		for (const name of ['BoardArticle', 'Like', 'View', 'Comment'])
+			await app.get<Model<unknown>>(getModelToken(name)).init();
 		user = await actor(MemberType.USER);
 		agent = await actor(MemberType.AGENT);
 		otherAgent = await actor(MemberType.AGENT);
@@ -225,8 +226,17 @@ describe('Community articles (e2e)', () => {
 		const ref = new Types.ObjectId(id);
 		await connection.collection('likes').insertOne({ memberId: user.id, likeRefId: ref, likeGroup: 'TOUR' });
 		await connection.collection('views').insertOne({ memberId: user.id, viewRefId: ref, viewGroup: 'MEMBER' });
+		await connection.collection('comments').insertMany([
+			{ commentRefId: ref, commentGroup: 'ARTICLE', commentStatus: 'ACTIVE' },
+			{ commentRefId: ref, commentGroup: 'ARTICLE', commentStatus: 'DELETE' },
+			{ commentRefId: ref, commentGroup: 'TOUR', commentStatus: 'ACTIVE' },
+		]);
 		await update(id, { articleStatus: 'DELETE' });
 		expect((await remove(id)).errors).toBeUndefined();
+		expect(await connection.collection('comments').countDocuments({ commentRefId: ref, commentGroup: 'ARTICLE' })).toBe(
+			0,
+		);
+		expect(await connection.collection('comments').countDocuments({ commentRefId: ref, commentGroup: 'TOUR' })).toBe(1);
 		expect(await connection.collection('boardArticles').findOne({ _id: ref })).toBeNull();
 		expect(await connection.collection('likes').countDocuments({ likeRefId: ref, likeGroup: 'ARTICLE' })).toBe(0);
 		expect(await connection.collection('views').countDocuments({ viewRefId: ref, viewGroup: 'ARTICLE' })).toBe(0);
@@ -235,23 +245,26 @@ describe('Community articles (e2e)', () => {
 		expect((await detail(other)).data?.getBoardArticle.articleLikes).toBe(1);
 	});
 
-	it('rolls back hard removal if relationship cleanup fails (injected database failure)', async () => {
-		const id = await article();
-		await like(id);
-		await detail(id, user.token);
-		await update(id, { articleStatus: 'DELETE' });
-		const before = await snapshot();
-		const model = app.get<Model<unknown>>(getModelToken('View'));
-		const spy = jest.spyOn(model, 'deleteMany').mockImplementationOnce(() => {
-			throw new Error('Injected cleanup failure');
-		});
-		try {
-			expect((await remove(id)).errors?.[0].extensions?.code).toBe('INTERNAL_SERVER_ERROR');
-		} finally {
-			spy.mockRestore();
-		}
-		expect(await snapshot()).toEqual(before);
-	});
+	it.each(['View', 'Comment'])(
+		'rolls back hard removal if %s cleanup fails (injected database failure)',
+		async (relation) => {
+			const id = await article();
+			await like(id);
+			await detail(id, user.token);
+			await update(id, { articleStatus: 'DELETE' });
+			const before = await snapshot();
+			const model = app.get<Model<unknown>>(getModelToken(relation));
+			const spy = jest.spyOn(model, 'deleteMany').mockImplementationOnce(() => {
+				throw new Error('Injected cleanup failure');
+			});
+			try {
+				expect((await remove(id)).errors?.[0].extensions?.code).toBe('INTERNAL_SERVER_ERROR');
+			} finally {
+				spy.mockRestore();
+			}
+			expect(await snapshot()).toEqual(before);
+		},
+	);
 
 	it.each(['like', 'view'])(
 		'rolls back a %s racing with soft deletion (controlled interleaving)',
@@ -322,7 +335,9 @@ describe('Community articles (e2e)', () => {
 	}
 	async function snapshot() {
 		return Promise.all(
-			['boardArticles', 'likes', 'views'].map((name) => connection.collection(name).find().sort({ _id: 1 }).toArray()),
+			['boardArticles', 'likes', 'views', 'comments'].map((name) =>
+				connection.collection(name).find().sort({ _id: 1 }).toArray(),
+			),
 		);
 	}
 	function send(query: string, variables: Record<string, unknown>, token = '') {

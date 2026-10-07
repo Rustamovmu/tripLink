@@ -17,6 +17,7 @@ describe('BoardArticleService query and access boundaries', () => {
 		{} as ConstructorParameters<typeof BoardArticleService>[2],
 		{} as ConstructorParameters<typeof BoardArticleService>[3],
 		{} as ConstructorParameters<typeof BoardArticleService>[4],
+		{} as ConstructorParameters<typeof BoardArticleService>[5],
 	);
 	beforeEach(() => {
 		jest.clearAllMocks();

@@ -16,6 +16,8 @@ import {
 } from '../../libs/dto/board-article/board-article.input';
 import { BoardArticleUpdate } from '../../libs/dto/board-article/board-article.update';
 import { BoardArticleCategory, BoardArticleStatus } from '../../libs/enums/board-article.enum';
+import { Comment } from '../../libs/dto/comment/comment';
+import { CommentGroup } from '../../libs/enums/comment.enum';
 import { Direction, Message } from '../../libs/enums/common.enum';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { ViewGroup } from '../../libs/enums/view.enum';
@@ -38,6 +40,7 @@ export class BoardArticleService {
 		@InjectModel('View') private readonly views: Model<Relation>,
 		private readonly likeService: LikeService,
 		private readonly viewService: ViewService,
+		@InjectModel('Comment') private readonly comments: Model<Comment>,
 	) {}
 
 	public async createBoardArticle(memberId: string, input: BoardArticleInput): Promise<BoardArticle> {
@@ -119,6 +122,7 @@ export class BoardArticleService {
 			if (!removed) throw new ConflictException(Message.REMOVE_FAILED);
 			await this.likes.deleteMany({ likeRefId: _id, likeGroup: LikeGroup.ARTICLE }).session(session).exec();
 			await this.views.deleteMany({ viewRefId: _id, viewGroup: ViewGroup.ARTICLE }).session(session).exec();
+			await this.comments.deleteMany({ commentRefId: _id, commentGroup: CommentGroup.ARTICLE }).session(session).exec();
 			return article;
 		});
 	}
