@@ -640,7 +640,6 @@ export class BookingService {
 						_id: input.bookingId,
 						bookingStatus: BookingStatus.CONFIRMED,
 						paymentStatus: PaymentStatus.PAID,
-						selectedDate: { $gt: new Date() },
 					})
 					.session(session)
 					.lean<BookingDocumentShape>()
@@ -651,7 +650,13 @@ export class BookingService {
 					.findOneAndUpdate(
 						{
 							_id: booking.tourId,
-							tourStatus: { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT, TourStatus.CANCELLED] },
+							// Departed bookings can only be refunded when the tour is cancelled.
+							tourStatus: {
+								$in:
+									booking.selectedDate.getTime() > Date.now()
+										? [TourStatus.ACTIVE, TourStatus.SOLD_OUT, TourStatus.CANCELLED]
+										: [TourStatus.CANCELLED],
+							},
 							tourBookingCount: { $gte: 1 },
 							'tourAvailableDates._id': booking.tourDateId,
 						},
@@ -738,49 +743,68 @@ export class BookingService {
 		const member = await this.memberService.getMember(agentId);
 		if (member.memberType !== MemberType.AGENT) throw new ForbiddenException(Message.NOT_ALLOWED_REQUEST);
 
-		const booking = await this.bookingModel
-			.findOne({
-				_id: bookingId,
-				agentId: new Types.ObjectId(agentId),
-				bookingStatus: BookingStatus.CONFIRMED,
-				paymentStatus: PaymentStatus.PAID,
-			})
-			.lean<BookingDocumentShape>()
-			.exec();
-		if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
-
-		let selectedEndDate = booking.selectedEndDate;
-		if (!selectedEndDate) {
-			const tour = await this.tourModel.findById(booking.tourId).lean<TourDocumentShape>().exec();
-			const selectedTourDate = tour?.tourAvailableDates.find((tourDate) => tourDate._id.equals(booking.tourDateId));
-			if (!selectedTourDate) throw new NotFoundException(Message.NO_DATA_FOUND);
-			selectedEndDate = selectedTourDate.endDate;
-		}
-		if (selectedEndDate.getTime() > Date.now()) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
-
+		const session = await this.bookingModel.db.startSession();
 		try {
-			const completedBooking = await this.bookingModel
-				.findOneAndUpdate(
-					{
-						_id: booking._id,
+			const result = await session.withTransaction(async (): Promise<Booking> => {
+				const booking = await this.bookingModel
+					.findOne({
+						_id: bookingId,
 						agentId: new Types.ObjectId(agentId),
 						bookingStatus: BookingStatus.CONFIRMED,
 						paymentStatus: PaymentStatus.PAID,
-					},
-					{
-						$set: {
-							bookingStatus: BookingStatus.COMPLETED,
-							selectedEndDate,
-							completedAt: new Date(),
-						},
-					},
-					{ new: true, runValidators: true },
-				)
-				.lean<Booking>()
-				.exec();
+					})
+					.session(session)
+					.lean<BookingDocumentShape>()
+					.exec();
+				if (!booking) throw new NotFoundException(Message.NO_DATA_FOUND);
 
-			if (!completedBooking) throw new ConflictException(Message.UPDATE_FAILED);
-			return completedBooking;
+				const tour = await this.tourModel.findById(booking.tourId).session(session).lean<TourDocumentShape>().exec();
+				if (!tour) throw new NotFoundException(Message.NO_DATA_FOUND);
+				if (![TourStatus.ACTIVE, TourStatus.SOLD_OUT].includes(tour.tourStatus)) {
+					throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+				}
+				let selectedEndDate = booking.selectedEndDate;
+				if (!selectedEndDate) {
+					const selectedTourDate = tour.tourAvailableDates.find((tourDate) => tourDate._id.equals(booking.tourDateId));
+					if (!selectedTourDate) throw new NotFoundException(Message.NO_DATA_FOUND);
+					selectedEndDate = selectedTourDate.endDate;
+				}
+				if (selectedEndDate.getTime() > Date.now()) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+
+				// A real tour write serializes completion with cancellation; a snapshot read alone cannot.
+				const eligibleTour = await this.tourModel
+					.updateOne(
+						{ _id: booking.tourId, tourStatus: { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT] } },
+						{ $inc: { __v: 1 } },
+						{ session, timestamps: false },
+					)
+					.exec();
+				if (eligibleTour.matchedCount !== 1) throw new ConflictException(Message.UPDATE_FAILED);
+				const completedBooking = await this.bookingModel
+					.findOneAndUpdate(
+						{
+							_id: booking._id,
+							agentId: new Types.ObjectId(agentId),
+							bookingStatus: BookingStatus.CONFIRMED,
+							paymentStatus: PaymentStatus.PAID,
+						},
+						{
+							$set: {
+								bookingStatus: BookingStatus.COMPLETED,
+								selectedEndDate,
+								completedAt: new Date(),
+							},
+						},
+						{ new: true, runValidators: true, session },
+					)
+					.lean<Booking>()
+					.exec();
+
+				if (!completedBooking) throw new ConflictException(Message.UPDATE_FAILED);
+				return completedBooking;
+			});
+			if (!result) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+			return result;
 		} catch (error: unknown) {
 			if (
 				error instanceof BadRequestException ||
@@ -793,6 +817,8 @@ export class BookingService {
 				throw new BadRequestException(Message.BAD_REQUEST);
 			}
 			throw new InternalServerErrorException(Message.UPDATE_FAILED);
+		} finally {
+			await session.endSession();
 		}
 	}
 
