@@ -16,6 +16,16 @@ const graphqlUploadExpress = (
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule);
+	const frontendOrigins = (process.env.FRONTEND_ORIGINS ?? 'http://localhost:3000')
+		.split(',')
+		.map((origin) => origin.trim())
+		.filter(Boolean);
+	app.enableCors({
+		origin: frontendOrigins,
+		methods: ['POST', 'OPTIONS'],
+		allowedHeaders: ['Authorization', 'Content-Type', 'Apollo-Require-Preflight'],
+		optionsSuccessStatus: 204,
+	});
 	app.useWebSocketAdapter(new WsAdapter(app));
 	app.useGlobalPipes(
 		new ValidationPipe({
