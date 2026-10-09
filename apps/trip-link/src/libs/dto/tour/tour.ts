@@ -116,6 +116,16 @@ export class Tour {
 	@Field(() => Int)
 	tourFavoriteCount!: number;
 
+	@Field(() => Float, {
+		middleware: [
+			async (_context, next) => {
+				const value: unknown = await next();
+				return typeof value === 'number' ? value : 0;
+			},
+		],
+	})
+	tourRank?: number;
+
 	@Field(() => TourStatus)
 	tourStatus!: TourStatus;
 

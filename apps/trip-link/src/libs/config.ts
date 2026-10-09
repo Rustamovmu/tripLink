@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 
 export const availableAgentSorts = [
+	'agentRank',
 	'createdAt',
 	'updatedAt',
 	'memberFollowers',
@@ -21,6 +22,7 @@ export const availableMemberSorts = [
 ] as const;
 
 export const availableTourSorts = [
+	'tourRank',
 	'createdAt',
 	'updatedAt',
 	'tourPrice',

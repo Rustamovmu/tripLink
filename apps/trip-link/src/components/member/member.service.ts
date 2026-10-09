@@ -460,7 +460,8 @@ export class MemberService {
 		const [result] = await this.memberModel
 			.aggregate<Members>([
 				{ $match: match },
-				{ $sort: { [sortField]: sortDirection } },
+				{ $addFields: { agentRank: { $ifNull: ['$agentRank', 0] } } },
+				{ $sort: { [sortField]: sortDirection, _id: sortDirection } },
 				{
 					$facet: {
 						list: [
@@ -483,6 +484,7 @@ export class MemberService {
 									memberFollowings: 1,
 									memberLikes: 1,
 									memberViews: 1,
+									agentRank: 1,
 									memberComments: 1,
 									createdAt: 1,
 									updatedAt: 1,
@@ -556,7 +558,8 @@ export class MemberService {
 		const [result] = await this.memberModel
 			.aggregate<Members>([
 				{ $match: match },
-				{ $sort: { [sortField]: sortDirection } },
+				{ $addFields: { agentRank: { $ifNull: ['$agentRank', 0] } } },
+				{ $sort: { [sortField]: sortDirection, _id: sortDirection } },
 				{
 					$facet: {
 						list: [
@@ -579,6 +582,7 @@ export class MemberService {
 									memberFollowings: 1,
 									memberLikes: 1,
 									memberViews: 1,
+									agentRank: 1,
 									memberComments: 1,
 									createdAt: 1,
 									updatedAt: 1,
@@ -767,6 +771,7 @@ export class MemberService {
 			memberFollowings: member.memberFollowings,
 			memberLikes: member.memberLikes,
 			memberViews: member.memberViews,
+			agentRank: member.agentRank ?? 0,
 			memberComments: member.memberComments,
 			createdAt: member.createdAt,
 			updatedAt: member.updatedAt,

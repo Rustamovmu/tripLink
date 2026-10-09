@@ -81,6 +81,7 @@ export class TourService {
 						tourStatus: { $in: PUBLIC_TOUR_STATUSES },
 					},
 				},
+				{ $addFields: { tourRank: { $ifNull: ['$tourRank', 0] } } },
 				this.agentLookup(),
 				{ $unwind: { path: '$agentData', preserveNullAndEmptyArrays: true } },
 			])
@@ -377,7 +378,12 @@ export class TourService {
 		const [result] = await this.tourModel
 			.aggregate<Tours>([
 				{ $match: match },
-				{ $addFields: { effectiveTourPrice: { $ifNull: ['$tourDiscountPrice', '$tourPrice'] } } },
+				{
+					$addFields: {
+						effectiveTourPrice: { $ifNull: ['$tourDiscountPrice', '$tourPrice'] },
+						tourRank: { $ifNull: ['$tourRank', 0] },
+					},
+				},
 				{ $sort: { [sortField]: sortDirection, _id: sortDirection } },
 				{
 					$facet: {

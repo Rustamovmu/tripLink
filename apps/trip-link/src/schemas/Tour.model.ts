@@ -49,6 +49,7 @@ const TourSchema = new Schema(
 		tourViewCount: { type: Number, default: 0, min: 0 },
 		tourFavoriteCount: { type: Number, default: 0, min: 0 },
 		tourStatus: { type: String, enum: TourStatus, default: TourStatus.DRAFT },
+		tourRank: { type: Number, default: 0, min: 0 },
 		tourFeatured: { type: Boolean, default: false },
 		agentId: { type: Schema.Types.ObjectId, required: true, ref: 'Member' },
 		deletedAt: { type: Date },
@@ -56,6 +57,7 @@ const TourSchema = new Schema(
 	{ timestamps: true, collection: 'tours' },
 );
 
+TourSchema.index({ tourStatus: 1, tourRank: -1, _id: -1 });
 TourSchema.index({ agentId: 1, tourStatus: 1, createdAt: -1 });
 TourSchema.index({ tourCountry: 1, tourCity: 1, tourStatus: 1 });
 TourSchema.index({ tourPrice: 1, tourAverageRating: -1 });

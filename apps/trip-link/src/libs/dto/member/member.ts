@@ -44,6 +44,16 @@ export class Member {
 	@Field(() => Int)
 	memberFollowings!: number;
 
+	@Field(() => Float, {
+		middleware: [
+			async (_context, next) => {
+				const value: unknown = await next();
+				return typeof value === 'number' ? value : 0;
+			},
+		],
+	})
+	agentRank?: number;
+
 	@Field(() => Int)
 	memberLikes!: number;
 

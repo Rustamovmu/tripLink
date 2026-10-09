@@ -22,6 +22,7 @@ const MemberSchema = new Schema(
 		memberReviews: { type: Number, default: 0, min: 0 },
 		memberFollowers: { type: Number, default: 0, min: 0 },
 		memberFollowings: { type: Number, default: 0, min: 0 },
+		agentRank: { type: Number, default: 0, min: 0 },
 		memberPoints: { type: Number, default: 0, min: 0 },
 		memberLikes: { type: Number, default: 0, min: 0 },
 		memberViews: { type: Number, default: 0, min: 0 },
@@ -34,6 +35,7 @@ const MemberSchema = new Schema(
 	{ timestamps: true, collection: 'members' },
 );
 
+MemberSchema.index({ memberType: 1, memberStatus: 1, agentRank: -1, _id: -1 });
 MemberSchema.index({ memberType: 1, memberStatus: 1, createdAt: -1 });
 
 export default MemberSchema;
