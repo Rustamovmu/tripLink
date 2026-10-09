@@ -401,3 +401,21 @@ Suggested frontend commit: style: match footer reference with charcoal columns a
 Suggested backend documentation commit: docs: record reference footer redesign and validation
 
 Next proposed backend task: actual Postman verification using disposable fixtures and clearly named live examples, under separate approval.
+
+## Teal footer alignment and navbar member photo — 2026-10-10
+
+Implemented the approved plan using user-project, frontend-design and web-design-guidelines. Inspected Top, existing footer styles, Nestar navbar image rendering, profile upload/save flow, current-member GraphQL selection, reactive session hydration, and backend member output/resolver contracts. Fetched current Web Interface Guidelines for review.
+
+- Frontend files changed in this pass: libs/components/Top.tsx and scss/triplink.scss. Preserved all earlier uncommitted work and the navbar's existing theme, menus and role navigation.
+- Recolored only footer-scoped palette/wrapper rules from charcoal to navbar-compatible deep teal #073f4c, pale aqua #c6e6e0, coral #f2a289, and teal divider #1c5360. Kept the reference-inspired four-column layout, heading underlines, compact inverse logo, circular social links, content, responsiveness and chat clearance. Footer Link wordmark now matches the navbar's aqua wordmark.
+- Added installed MUI Avatar using saved member.memberImage and the existing imageUrl helper, with initials when missing or when image loading fails. Desktop button and mobile drawer share the same avatar rendering; fixed 30px dimensions, decorative image accessibility attributes and existing named account button prevent duplicate announcements. Added a drawer identity row beside the nickname. Added passHref to the existing logo Link to clear its lint warning.
+- Existing memberVar changes refresh the avatar after profile save/authentication/session hydration. Local unsaved upload previews remain confined to the existing profile form. No query/mutation, authentication, upload/save logic, API, schema, backend, shared image helper, dependency, header palette, or footer markup changes.
+- Validation passed: yarn typecheck, scoped non-fixing yarn lint (no warnings/errors), git diff --check, in-memory SCSS compilation, static footer-palette and avatar selector checks. An ephemeral actual React/MUI/Apollo reactive-state jsdom harness passed USER/AGENT/ADMIN saved-photo URLs, ArrowDown menu opening, Escape closing, drawer avatar and role-specific shortcuts, reactive image changes, missing/broken image initials, restored valid image after failure, member nickname changes, anonymous state and cleanup. The imageUrl helper was verified for uploads/member and /uploads/member paths. Browser image loading was simulated; jsdom produced expected zero-layout MUI anchor warnings, not assertion failures. No permanent test files were added.
+- Live desktop Chrome screenshot on /mypage confirmed the saved profile photo visibly replaces initials beside Admin, while the navbar retains its existing appearance and profile-page photo. Full responsive visual inspection and footer/navbar side-by-side screenshot were interrupted by active Chrome window changes. Mobile/tablet photo cropping, actual browser fallback/error cases, and live profile-save updates remain unverified; the DOM harness is not real-browser layout validation.
+- No user records/profile image/token/status changes, server restart/stop, production build, or commits. Existing development preview/backend were left running.
+
+Suggested frontend commit: fix: show navbar member photos and align footer with teal navigation
+
+Suggested backend documentation commit: docs: record navbar avatar and footer alignment validation
+
+Next proposed backend task: actual Postman verification using disposable fixtures and clearly named live examples, under separate approval.
