@@ -50,6 +50,12 @@ export class MemberResolver {
 		return `Hi ${memberNick}`;
 	}
 
+	@UseGuards(AuthGuard)
+	@Query(() => Member)
+	public getCurrentMember(@AuthMember('sub') memberId: string): Promise<Member> {
+		return this.memberService.getMember(memberId);
+	}
+
 	@Roles(MemberType.USER, MemberType.AGENT)
 	@UseGuards(RolesGuard)
 	@Query(() => String)

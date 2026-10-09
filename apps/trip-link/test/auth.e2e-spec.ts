@@ -12,6 +12,20 @@ jest.setTimeout(30000);
 type Actor = { id: string; nick: string; token: string };
 type Result<T> = { data?: T | null; errors?: Array<{ message: string; extensions?: { code?: string } }> };
 type LoginResult = { accessToken: string; member: { _id: string } };
+type CurrentMemberResult = {
+	getCurrentMember: {
+		_id: string;
+		memberType: MemberType;
+		memberStatus: MemberStatus;
+		memberNick: string;
+		memberFullname: string | null;
+		memberImage: string;
+		memberCountry: string | null;
+		memberDesc: string | null;
+		memberFavoriteDestinations: string[];
+		memberViews: number;
+	};
+};
 
 // Every account and counter in this suite belongs to its disposable tl_auth_e2e_* database.
 describe('Current-account authorization (e2e)', () => {
@@ -27,6 +41,16 @@ describe('Current-account authorization (e2e)', () => {
 	const checkQuery = 'query { checkAuth }';
 	const adminQuery = 'query Members($input: MembersInquiry!) { getAllMembersByAdmin(input: $input) { list { _id } } }';
 	const profileQuery = 'query Profile($memberId: String!) { getMember(memberId: $memberId) { _id } }';
+	const currentMemberQuery = `query GetCurrentMember {
+		getCurrentMember {
+			_id memberType memberStatus memberNick memberFullname memberImage memberCountry
+			memberDesc memberFavoriteDestinations memberViews
+		}
+	}`;
+	const assertDatabase = () => {
+		if (connection.name !== testDatabase || !/^tl_auth_e2e_[a-f0-9]{24}$/.test(testDatabase))
+			throw new Error('Unexpected auth-test database');
+	};
 
 	beforeAll(async () => {
 		if (process.env.NODE_ENV === 'production') throw new Error('Auth tests cannot run in production');
@@ -39,9 +63,9 @@ describe('Current-account authorization (e2e)', () => {
 		const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
 		app = module.createNestApplication();
 		app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
-		await app.init();
 		connection = app.get<Connection>(getConnectionToken());
-		if (connection.name !== testDatabase) throw new Error('Unexpected test database');
+		assertDatabase();
+		await app.init();
 		user = await signup(MemberType.USER);
 		agent = await signup(MemberType.AGENT);
 		admin = await signup(MemberType.ADMIN);
@@ -50,12 +74,103 @@ describe('Current-account authorization (e2e)', () => {
 
 	afterAll(async () => {
 		try {
-			if (connection && connection.name === testDatabase) await connection.dropDatabase();
+			if (connection) {
+				assertDatabase();
+				await connection.dropDatabase();
+			}
 		} finally {
-			if (app) await app.close();
-			if (originalMongoDev) process.env.MONGO_DEV = originalMongoDev;
-			else delete process.env.MONGO_DEV;
+			try {
+				if (app) await app.close();
+			} finally {
+				if (originalMongoDev === undefined) delete process.env.MONGO_DEV;
+				else process.env.MONGO_DEV = originalMongoDev;
+			}
 		}
+	});
+
+	it.each(Object.values(MemberType))('returns the authenticated ACTIVE %s account', async (role) => {
+		const actor = role === MemberType.ADMIN ? admin : role === MemberType.AGENT ? agent : user;
+		const result = await graphql<CurrentMemberResult>(currentMemberQuery, {}, actor.token);
+		expect(result.errors).toBeUndefined();
+		expect(result.data?.getCurrentMember).toMatchObject({
+			_id: actor.id,
+			memberType: role,
+			memberStatus: MemberStatus.ACTIVE,
+			memberNick: actor.nick,
+		});
+	});
+
+	it('rejects missing, invalid and incorrectly signed current-account tokens', async () => {
+		const forged = await new JwtService({ secret: 'different-test-secret' }).signAsync({
+			sub: user.id,
+			memberType: MemberType.USER,
+			memberNick: user.nick,
+		});
+		for (const token of [undefined, 'invalid', forged]) {
+			const result = await graphql(currentMemberQuery, {}, token);
+			expect(result.data).toBeNull();
+			expect(result.errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
+		}
+	});
+
+	it.each(['memberPassword', 'memberEmail', 'memberPhone', 'memberAddress', 'memberAuthType', 'accessToken'])(
+		'keeps %s outside the current-account GraphQL type',
+		async (field) => {
+			const response = await request(app.getHttpServer())
+				.post('/graphql')
+				.set('Authorization', `Bearer ${user.token}`)
+				.send({ query: `query { getCurrentMember { _id ${field} } }`, variables: {} })
+				.expect(400);
+			const result = JSON.parse(response.text) as Result<unknown>;
+			expect(result.data).toBeUndefined();
+			expect(result.errors?.[0].extensions?.code).toBe('GRAPHQL_VALIDATION_FAILED');
+		},
+	);
+
+	it('rejects a client-supplied member ID on the current-account query', async () => {
+		const response = await request(app.getHttpServer())
+			.post('/graphql')
+			.set('Authorization', `Bearer ${user.token}`)
+			.send({
+				query: 'query Current($memberId: String!) { getCurrentMember(memberId: $memberId) { _id } }',
+				variables: { memberId: agent.id },
+			})
+			.expect(400);
+		const result = JSON.parse(response.text) as Result<unknown>;
+		expect(result.data).toBeUndefined();
+		expect(result.errors?.[0].extensions?.code).toBe('GRAPHQL_VALIDATION_FAILED');
+	});
+
+	it('keeps ADMIN accounts excluded from public profiles', async () => {
+		for (const token of [undefined, admin.token, user.token]) {
+			const result = await graphql(profileQuery, { memberId: admin.id }, token);
+			expect(result.data).toBeNull();
+			expect(result.errors?.[0].extensions?.code).toBe('NOT_FOUND');
+		}
+	});
+
+	it('reads current profile fields without changing records or interaction counters', async () => {
+		const actor = await signup(MemberType.USER);
+		const profile = {
+			memberNick: `fresh-${new Types.ObjectId().toHexString().slice(-8)}`,
+			memberFullname: 'Disposable traveler',
+			memberImage: '',
+			memberCountry: 'South Korea',
+			memberDesc: '[DISPOSABLE TEST] Updated profile',
+			memberFavoriteDestinations: ['Seoul'],
+		};
+		expect((await manage(actor.id, profile)).errors).toBeUndefined();
+		const before = await connection.collection('members').findOne({ _id: new Types.ObjectId(actor.id) });
+		const viewsBefore = await connection.collection('views').find({}).toArray();
+		const followsBefore = await connection.collection('follows').find({}).toArray();
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const result = await graphql<CurrentMemberResult>(currentMemberQuery, {}, actor.token);
+			expect(result.errors).toBeUndefined();
+			expect(result.data?.getCurrentMember).toMatchObject({ _id: actor.id, ...profile });
+		}
+		expect(await connection.collection('members').findOne({ _id: new Types.ObjectId(actor.id) })).toEqual(before);
+		expect(await connection.collection('views').find({}).toArray()).toEqual(viewsBefore);
+		expect(await connection.collection('follows').find({}).toArray()).toEqual(followsBefore);
 	});
 
 	it('permits active admins and denies USER/AGENT access to admin operations', async () => {
@@ -71,12 +186,18 @@ describe('Current-account authorization (e2e)', () => {
 				expect((await graphql(checkQuery, {}, actor.token)).errors?.[0].extensions?.code).toBe(
 					status === MemberStatus.DELETE ? 'UNAUTHENTICATED' : 'FORBIDDEN',
 				);
+				const currentMember = await graphql(currentMemberQuery, {}, actor.token);
+				expect(currentMember.data).toBeNull();
+				expect(currentMember.errors?.[0].extensions?.code).toBe(
+					status === MemberStatus.DELETE ? 'UNAUTHENTICATED' : 'FORBIDDEN',
+				);
 				if (actor === admin)
 					expect((await listMembers(actor.token)).errors?.[0].extensions?.code).toBe(
 						status === MemberStatus.DELETE ? 'UNAUTHENTICATED' : 'FORBIDDEN',
 					);
 				expect((await manage(actor.id, { memberStatus: MemberStatus.ACTIVE })).errors).toBeUndefined();
 				expect((await graphql(checkQuery, {}, actor.token)).errors).toBeUndefined();
+				expect((await graphql(currentMemberQuery, {}, actor.token)).errors).toBeUndefined();
 			}
 		}
 	});
@@ -85,12 +206,28 @@ describe('Current-account authorization (e2e)', () => {
 		const promoted = await signup(MemberType.USER);
 		expect((await manage(promoted.id, { memberType: MemberType.ADMIN })).errors).toBeUndefined();
 		expect((await listMembers(promoted.token)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
+		expect((await graphql(currentMemberQuery, {}, promoted.token)).errors?.[0].extensions?.code).toBe(
+			'UNAUTHENTICATED',
+		);
 		const promotedToken = await login(promoted.nick);
 		expect((await listMembers(promotedToken)).errors).toBeUndefined();
+		expect(
+			(await graphql<CurrentMemberResult>(currentMemberQuery, {}, promotedToken)).data?.getCurrentMember,
+		).toMatchObject({
+			_id: promoted.id,
+			memberType: MemberType.ADMIN,
+		});
 		expect((await manage(promoted.id, { memberType: MemberType.USER })).errors).toBeUndefined();
 		expect((await listMembers(promotedToken)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
+		expect((await graphql(currentMemberQuery, {}, promotedToken)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
 		const demotedToken = await login(promoted.nick);
 		expect((await listMembers(demotedToken)).errors?.[0].extensions?.code).toBe('FORBIDDEN');
+		expect(
+			(await graphql<CurrentMemberResult>(currentMemberQuery, {}, demotedToken)).data?.getCurrentMember,
+		).toMatchObject({
+			_id: promoted.id,
+			memberType: MemberType.USER,
+		});
 		expect((await graphql(checkQuery, {}, promoted.token)).errors).toBeUndefined();
 	});
 
@@ -113,10 +250,12 @@ describe('Current-account authorization (e2e)', () => {
 		const removed = await signup(MemberType.USER);
 		await connection.collection('members').deleteOne({ _id: new Types.ObjectId(removed.id) });
 		expect((await graphql(checkQuery, {}, removed.token)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
+		expect((await graphql(currentMemberQuery, {}, removed.token)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
 		const expired = await app
 			.get(JwtService)
 			.signAsync({ sub: user.id, memberType: MemberType.USER, memberNick: user.nick }, { expiresIn: -1 });
 		expect((await graphql(checkQuery, {}, expired)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
+		expect((await graphql(currentMemberQuery, {}, expired)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
 	});
 
 	it('uses the current nickname with an existing token', async () => {

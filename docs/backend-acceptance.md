@@ -23,6 +23,24 @@ There are no existing lint failures in this pass. Prettier still reports an exis
 
 This verifies the current automated suites, not production deployment, a load test, or real Postman runs. The batch cron callback is registered and triggered directly in integration tests; the 1,000-candidate cap and retained progress are tested with unit mocks, with 101 real MongoDB candidates verifying actual pagination.
 
+### Current-account API follow-up — 2026-10-08
+
+Added authenticated `getCurrentMember: Member` for ACTIVE USER, AGENT and ADMIN accounts. The resolver uses the existing current-account guard and safe member lookup; no database schema, service implementation or frontend files changed. The earlier 242-test full-backend result above predates this addition.
+
+- Non-writing TypeScript check, non-fixing lint of the two changed TypeScript files, and `git diff --check` passed.
+- Authentication unit tests: 18 passed in one suite.
+- Authentication and public agent-profile integration tests: 25 passed in two suites, including 13 new current-account/privacy/read-only test cases. Existing tests also exercise current-account rejection after status/role changes, token expiry and account removal.
+- Integration setup verifies uniquely named disposable databases before fixtures; cleanup verifies their exact names before dropping them and closes both test applications. No development records/counters, uploads, or the user's existing server were modified.
+- The initial sandboxed integration attempt failed at MongoDB DNS resolution (`ECONNREFUSED`). The same command passed with approved network access. Expected rejection logs accompanied passing assertions; no remaining test failure was observed in this focused run.
+- These are automated HTTP integration results. No Postman request or saved live example was created. The complete manual recipe appears under **Current account: Postman verification** below.
+
+Focused test commands:
+
+```sh
+./node_modules/.bin/jest --runInBand --no-cache --silent --runTestsByPath apps/trip-link/src/components/auth/auth.service.spec.ts
+node -r dotenv/config ./node_modules/jest/bin/jest.js --config apps/trip-link/test/jest-e2e.json --runInBand --no-cache --silent --runTestsByPath apps/trip-link/test/auth.e2e-spec.ts apps/trip-link/test/agent-profile.e2e-spec.ts
+```
+
 ## Reproduce the checks
 
 Run from the repository root with installed dependencies. Integration tests require `MONGO_DEV` pointing to a reachable MongoDB replica set that supports transactions. They substitute a uniquely named disposable database; they must not run with `NODE_ENV=production`. Never copy credentials into reports or Postman examples.
@@ -90,6 +108,58 @@ For manual writes, first use a dedicated test server connected to a uniquely nam
 ```json
 {}
 ```
+
+### Current account: Postman verification
+
+`GetCurrentMember` restores the authenticated account for ACTIVE USER, AGENT and ADMIN members. It accepts no member ID and returns the existing safe `Member` fields from the current database record. It does not issue a token or increment views, follows or other counters. Public `getMember(memberId: ...)` still excludes ADMIN profiles. Nestar provides the authenticated resolver/service structure, but has no dedicated current-account query.
+
+**Endpoint:** POST `http://localhost:3008/graphql` for a separately started disposable test server; substitute its actual free port. The usual development endpoint is `http://localhost:3007/graphql`; do not change records or statuses there for this test.
+
+**Prerequisites:** the exact dedicated disposable database described above, an ACTIVE USER, AGENT and ADMIN fixture, their login tokens, and an additional ADMIN controller fixture for changing only fixture status/role. ADMIN fixtures must be provisioned in that disposable database; public signup cannot create ADMIN. Keep passwords/tokens in local Postman settings and do not save them in example bodies.
+
+**GraphQL operation:**
+
+```graphql
+query GetCurrentMember {
+  getCurrentMember {
+    _id
+    memberType
+    memberStatus
+    memberNick
+    memberFullname
+    memberImage
+    memberCountry
+    memberDesc
+    memberFavoriteDestinations
+    memberTours
+    memberReviews
+    memberFollowers
+    memberFollowings
+    memberLikes
+    memberViews
+    memberComments
+    createdAt
+    updatedAt
+  }
+}
+```
+
+**Exact Variables JSON:**
+
+```json
+{}
+```
+
+**Test steps and expected responses:**
+
+1. Select GraphQL body mode, paste the operation and Variables, and set Authorization to Bearer Token using the USER fixture's login token. Send, then repeat with AGENT and ADMIN tokens. Expect HTTP 200, no `errors`, and `data.getCurrentMember` containing that token owner's `_id`, current role/status (`ACTIVE`), profile fields and counters. No password, email, phone, address or access token is returned.
+2. Update only a disposable fixture's profile using existing account/admin operations. Repeat with its original, still-valid token: expect the current database values, not stale profile values from JWT claims. Repeated reads must leave stored records/counters unchanged.
+3. Remove authorization, supply an invalid/expired token, or use a token whose fixture was deleted or whose role no longer matches. Expect HTTP 200 with `data: null`, `errors[0].extensions.code: "UNAUTHENTICATED"`, and message `You are not authenticated, please login first!`.
+4. Using the controller fixture, set only a disposable member to `PENDING`, `BLOCK` or `SUSPENDED`. Its current-account query must return HTTP 200 with `data: null`, code `FORBIDDEN`, and message `This account is not available!`. Restore that fixture to `ACTIVE`; its unchanged, unexpired matching-role token works again. Role changes require a fresh login while the token role differs from the database role.
+5. Try selecting `memberPassword`, `memberEmail`, `memberPhone`, `memberAddress`, `memberAuthType` or `accessToken`, or supplying a `memberId` argument to `getCurrentMember`. Expect HTTP 400 and `GRAPHQL_VALIDATION_FAILED`, with no member data.
+6. Call the existing public `getMember` operation with the disposable ADMIN's ID, anonymously and with a valid token. Expect HTTP 200 with `data: null`, code `NOT_FOUND`, and message `No data found!`.
+
+**Cleanup:** verify the disposable database's exact name before dropping it, remove any task-owned temporary uploads, close the test application/server, and clear fixture IDs/tokens from active Postman settings. Never alter development records to simulate rejection cases. These instructions are a manual test recipe, not live Postman responses or saved examples.
 
 ### Public lists, member profiles and follows
 
