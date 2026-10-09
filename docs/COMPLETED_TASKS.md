@@ -509,3 +509,15 @@ The new regression test uses real React renderToString/hydrateRoot with isolated
 Suggested frontend commit: fix: hydrate tour search after router readiness
 
 Suggested backend documentation commit: docs: record tour search hydration fix
+
+## Homepage section redesign — 2026-10-10
+
+Implemented the approved homepage content redesign below the existing hero. Frontend files changed: pages/index.tsx, new libs/components/homepage/HomeSections.tsx, scss/triplink.scss, and public/locales/en/common.json, public/locales/kr/common.json, public/locales/ru/common.json. Replaced repeated catalog cards with large Featured photo cards, horizontal rating cards, portrait-led Top agents, view-ranked Top tours rows, and illustrated seasonal Events tickets. Reused typed TOURS/AGENTS documents, public-session readiness, query states, image URLs and the existing shared TourFavoritesProvider. Queries use six featured/rating/view-sorted tours and four follower-sorted agents. Preserved hero/search/navigation, catalog cards, backend integration, routes and GraphQL/domain contracts. Events are static worldwide editorial inspiration with official links, without upcoming-date or booking claims. No dependencies added.
+
+Passed Yarn non-writing typecheck after component and presentation phases, non-fixing scoped ESLint (zero errors/warnings), in-memory SCSS compilation and frontend diff whitespace checks. An ephemeral real React/MUI/i18next/JSDOM harness with isolated Apollo/router adapters verified all three locales; independent success/loading/empty/error render states; missing images/avatars; sold-out, unrated and discounted tours; ranking inputs; anonymous/ADMIN/restoring controls; and USER/AGENT saved-state synchronization across duplicate cards using the real favorites provider. Mocked harness checks are not live API mutation acceptance. Live Chrome accessibility inspection confirmed the five sections, actual tour/agent links, event links and the ADMIN session; Featured correctly has no results in current development data. Browser interactions intermittently failed with noWindowsAvailable, so full desktop/tablet/375px visual, keyboard and long-title acceptance remains unverified. No development records, account/session data, uploads or counters were changed; no servers started/restarted, builds, Postman requests or commits.
+
+Suggested frontend commit: feat: add distinct homepage tour agent and event cards
+
+Suggested backend documentation commit: docs: record homepage section redesign
+
+Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
