@@ -1,5 +1,40 @@
 # TripLink completed tasks
 
+## Shareable tour search URLs — 2026-10-10
+
+Implemented Nestar-style `/tour?input=<URL-encoded JSON>` in the existing frontend. Inspected Nestar's property page/filter/homepage navigation and backend property resolver, and TripLink's tour resolver, frontend types, inquiry DTOs and service filters. The frontend now restores applied filters, sorting, page and limit from the URL after router readiness. Search resets pagination to page 1; pagination preserves the complete inquiry; Reset clears filters while retaining the locale. Existing readable-parameter links and the unchanged property-route compatibility mapping remain supported. JSON input takes precedence over readable parameters.
+
+### Behavior and impacts
+
+- A shared parser/serializer constructs only allowed DTO fields and checks enum values, finite numbers, bounds, array sizes, string lengths, MongoDB agent IDs and date ranges. Unknown fields never reach GraphQL. Malformed/invalid links show an English/Korean/Russian error and Reset without mounting the tour query.
+- Homepage search and hero destination links generate JSON URLs. Default inquiry is page 1, limit 12, createdAt/DESC and search `{}`. No separate Share button is needed; copy the browser address.
+- Departure dates use ISO instants; local form display preserves the recipient's timezone. Unedited date endpoints retain their original instant, including a repeated daylight-saving hour. Untouched array filters and API filters without form controls survive submission. Existing single-value controls display the first array entry and replace that array only when edited.
+- No backend business API, schema, authentication, dependency or configuration change. Existing Apollo `getTours` remains the data source. Links reproduce criteria against current data, not an immutable result snapshot. No token is included in generated links.
+
+### Exact changed files
+
+Frontend repository `/Users/a1234/Developer/tripLInk-next`:
+
+- Created `libs/triplink/tourSearchUrl.ts` and `tests/tour-search-url.test.cjs`.
+- Updated `libs/components/triplink/TourSearch.tsx`, `libs/triplink/homeSearch.ts`, `libs/components/homepage/HeaderFilter.tsx` and `tests/home-search.test.cjs`.
+- Updated `public/locales/en/common.json`, `public/locales/kr/common.json` and `public/locales/ru/common.json`.
+
+Backend repository: this completion record only (`docs/COMPLETED_TASKS.md`).
+
+### Validation and resources
+
+- Frontend `yarn typecheck`: passed (no emit, incremental disabled).
+- Frontend `yarn test`: 21/21 passed, including JSON/Unicode/reserved-character round trips, invalid inputs, field allowlisting, readable-link compatibility, array/hidden-filter preservation, timezone/DST conversion and unedited endpoint preservation.
+- Whole-frontend `yarn lint --no-cache`: passed, zero warnings/errors. Following final helper changes, direct non-fixing ESLint of all changed TypeScript/TSX files passed. Frontend/backend diff checks passed.
+- Browser verification used a task-owned copy in `/private/tmp`, a temporary server on port 3011 and a test-only anonymous same-origin GraphQL proxy to the existing localhost:3007 API. The proxy logged only `getTours` Variables for comparison. This proxy was not added to either repository and does not validate production CORS configuration.
+- Chrome Incognito: shared URLs restored controls/results, pagination preserved limit/sort/filters, reload and Back/Forward restored pages, unchanged submission retained arrays, category edits retained other filters, invalid Korean links emitted no tour query, and Reset preserved locale. The same shared link in another anonymous window produced identical GraphQL Variables and the same first tour.
+- Safari Private Browsing: homepage submission and hero links used JSON input. The same shared URL in the temporary production build restored controls/results with identical GraphQL Variables and the same first tour as Chrome.
+- An isolated `yarn build` passed (65 static pages, including existing application pages and the test-only proxy route). Temporary development hot reload intermittently displayed blank pages; the production-build Safari check succeeded. No production deployment or rebuild of the user's running frontend was performed. The existing Browserslist metadata warning remains; dependencies were not updated.
+- Task-owned development/production servers stopped, port 3011 verified closed, and the exact temporary copy removed. Existing servers on ports 3000 and 3007 remained running. Only anonymous list queries were sent; no development records/counters or writable fixtures were changed. Safari and one task-owned Chrome window were closed; the UI timed out while locating the remaining Chrome test window, which may still be open.
+- No Postman requests/examples or Git commits were created. The existing frontend server can continue serving its earlier build until the user rebuilds/restarts it.
+
+Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
 ## Nestar-next → TripLink-next frontend migration — 2026-10-09
 
 Implemented the nine migration phases in the existing frontend directory, preserving repository history, Pages Router, React, Apollo, MUI, SCSS and next-i18next. Nestar frontend/backend sources and TripLink resolver/DTO/service contracts were inspected before feature adaptation. Bookings and simulated settlement have no Nestar equivalent; their behavior follows TripLink contracts.
@@ -462,3 +497,15 @@ Suggested tripLink commit: feat: add Help Center FAQ and notice management APIs
 Suggested tripLInk-next commit: feat: connect public Help Center and admin FAQ notice management
 
 Next proposed backend task: actual Help Center Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
+## Tour-search hydration mismatch fix — 2026-10-10
+
+Resolved the user's reported /tour runtime error: expected server HTML to contain a matching form inside div. Existing uncommitted TourSearch URL/filter work read router.isReady during rendering. Static prerendering selected a loading paragraph while a ready client router selected the form during initial hydration. The Next.js useRouter documentation explicitly restricts readiness checks to effects for this reason.
+
+Frontend changes in this pass: libs/components/triplink/TourSearch.tsx and new tests/tour-search-hydration.test.cjs. Added effect-driven queryReady state initialized false so SSR and initial browser markup both show the existing loading state. URL parsing/form/list rendering begins after the router is ready in an effect. Preserved all existing URL validation, filter serialization, form edits, pagination, navbar styling, Apollo/backend behavior and other uncommitted changes. No dependency additions.
+
+The new regression test uses real React renderToString/hydrateRoot with isolated router/UI/list adapters. Before the fix it reproduced the exact missing-form warning and recoverable hydration failures. After the fix it passes empty direct URLs, filtered ready-router loads, delayed router readiness, preserved text/seats filters and malformed-link handling without any recoverable hydration error or premature list rendering. Passed yarn typecheck, non-fixing scoped yarn eslint for TourSearch.tsx, yarn test (22 tests passed), and frontend whitespace checks. Live Chrome /tour reload removed the error overlay and showed the search fields and existing tour cards. The reload tool initially reported a macOS screen-capture failure, but a subsequent fresh accessibility tree confirmed the reload completed and the error overlay was absent. No production build/server restart, member/data mutations or commits. Browser console instrumentation and the full responsive/locale matrix were not performed in this focused fix.
+
+Suggested frontend commit: fix: hydrate tour search after router readiness
+
+Suggested backend documentation commit: docs: record tour search hydration fix
