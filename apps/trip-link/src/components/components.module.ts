@@ -1,3 +1,4 @@
+import { HelpCenterModule } from './help-center/help-center.module';
 import { Module } from '@nestjs/common';
 import { SocketModule } from '../socket/socket.module';
 import { BoardArticleModule } from './board-article/board-article.module';
@@ -10,6 +11,7 @@ import { TourModule } from './tour/tour.module';
 
 @Module({
 	imports: [
+		HelpCenterModule,
 		SocketModule,
 		CommentModule,
 		BoardArticleModule,

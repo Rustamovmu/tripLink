@@ -436,3 +436,29 @@ Implemented the approved premium-card plan and subsequent user requests to add h
 Suggested frontend commit: feat: refine tour cards with favorites views and clear home navigation
 
 Suggested backend documentation commit: docs: record premium cards and clear navbar validation
+
+## Clear navigation on every public page — 2026-10-10
+
+Applied the user's follow-up request to make navigation clear on every page, matching the homepage. Frontend changes are limited to libs/components/Top.tsx and scss/triplink.scss. Removed the homepage route restriction from the clear-header class; all public layouts using Top now use the same translucent styling at the top and retain solid teal after 24px scroll. Extended desktop inner-page header-basic banners behind navigation with compensated height/padding to preserve title position. Pages without banners retain their normal content clearance. Existing menu controls, links, language selector, saved member avatar, role navigation, session behavior and homepage overlay rules are unchanged. No API/schema/Apollo/dependency changes.
+
+Passed yarn typecheck, scoped non-fixing yarn eslint for Top.tsx, in-memory SCSS compilation and frontend diff whitespace checks. An ephemeral React/MUI harness verified clear navigation across home, tour, agent, community, about, mypage, account/join and tour/detail routes, solid styling on scroll, and unchanged navigation URLs/language/photo. Live Chrome inspection initially showed the Agent page accessibility tree, then the user navigated to the homepage before screenshot capture; the screenshot confirmed clear homepage styling, not Agent-page layout. Full inner-page and mobile visual review remains unverified. No server restart/build, user data changes or commits.
+
+Suggested frontend commit: fix: apply clear navigation across public pages
+
+Suggested backend documentation commit: docs: record clear navigation across public pages
+
+## Help Center FAQs and notices — 2026-10-10
+
+Implemented the approved Help Center plan using Nestar's accordion/notice presentation as reference. Its hardcoded content and placeholder administration were replaced by TripLink database-backed public/admin operations, not copied as working APIs. Reused notices with preserved legacy enum values, NOTICE and FAQ topics, HOLD drafts/ACTIVE publication, immutable kind/token author, trimmed plain text, stable filtering/pagination, current ACTIVE ADMIN enforcement and permanent removal. Public optional-auth reads expose published Help Center entries only.
+
+Connected `/help-center`, legacy `/cs` tab redirects, existing admin FAQ/notice routes, desktop/mobile/footer/admin navigation, typed Apollo contracts, responsive query states, FAQ accordions, notice dialogs and locked management dialogs with named permanent-delete confirmation. Added English/Korean/Russian UI labels, contract fixtures and runtime smoke coverage. No auto seed: six starter FAQs are prepared for explicit admin entry/publication in [Help Center guide](help-center.md). The guide includes exact changed-file manifest, Postman operations/Variables/access/rejections/cleanup and acceptance limits. Preserved earlier clear-navigation changes and completion entries.
+
+Passed backend non-writing type check, whole-app non-fixing lint, three service unit tests and eight disposable Help Center integration tests; frontend Yarn type check, all 14 existing tests, scoped lint, GraphQL contract validation (62 documents/15 fixtures/zero errors), runtime HTTP GraphQL lifecycle/list checks and both diff whitespace checks. Live desktop browser verified full draft/publish/edit/unpublish/delete lifecycle with public visibility after each action. 390px mobile checks verified public controls/navigation/notice dialog and admin notice list/editor layout. Full second mobile lifecycle and exhaustive locale/screen-reader acceptance remain unverified due repeated native window-capture failures. Chrome showed MUI focus/aria-hidden and existing shared-chat closure warnings; recorded in the guide without claiming full accessibility acceptance. Browser preview used a temporary same-origin proxy; deployment origin configuration is unchanged.
+
+Disposable databases/uploads, temporary build directories and task-owned listeners/processes were cleaned; user's 3000/3007 servers and development data remained untouched. Actual Postman execution/example saving remains separate. No dependencies, startup content seeding or commits.
+
+Suggested tripLink commit: feat: add Help Center FAQ and notice management APIs
+
+Suggested tripLInk-next commit: feat: connect public Help Center and admin FAQ notice management
+
+Next proposed backend task: actual Help Center Postman verification with disposable fixtures and clearly named live examples, under separate approval.
