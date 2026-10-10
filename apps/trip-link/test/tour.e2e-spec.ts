@@ -158,6 +158,25 @@ describe('Tour CRUD, search and publication (real GraphQL e2e)', () => {
 		expect((await list('getAgentTours', {}, otherAgent.token)).data?.getAgentTours?.list).toEqual([]);
 	});
 
+	it('features and unfeatures an active tour without supplying or changing status (regression)', async () => {
+		const id = await seed({ tourStatus: TourStatus.ACTIVE, tourFeatured: false });
+		for (const tourFeatured of [true, false]) {
+			const response = await moderate(id, { tourFeatured });
+			expect(response.errors).toBeUndefined();
+			expect(response.data?.updateTourByAdmin).toMatchObject({ tourStatus: 'ACTIVE', tourFeatured });
+			expect(
+				await db()
+					.collection('tours')
+					.findOne({ _id: new Types.ObjectId(id) }),
+			).toMatchObject({ tourStatus: 'ACTIVE', tourFeatured });
+		}
+		const before = await snapshot();
+		expect((await moderate(id, { tourFeatured: null })).errors).toBeDefined();
+		expect((await moderate(id, {})).errors).toBeDefined();
+		expect((await moderate(id, { tourFeatured: true }, user.token)).errors?.[0].extensions?.code).toBe('FORBIDDEN');
+		expect(await snapshot()).toEqual(before);
+	});
+
 	it('clears featured status when the owning agent cancels a tour (regression)', async () => {
 		const id = await seed({ tourStatus: TourStatus.ACTIVE, tourFeatured: true });
 		const response = await edit(id, { tourStatus: 'CANCELLED' });
@@ -369,11 +388,11 @@ describe('Tour CRUD, search and publication (real GraphQL e2e)', () => {
 			token,
 		);
 	}
-	function moderate(id: string, patch: Record<string, unknown>) {
+	function moderate(id: string, patch: Record<string, unknown>, token = admin.token) {
 		return send(
 			`mutation($input: TourAdminUpdate!) { updateTourByAdmin(input: $input) { ${fields} } }`,
 			{ input: { tourId: id, ...patch } },
-			admin.token,
+			token,
 		);
 	}
 	function list(

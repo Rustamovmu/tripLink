@@ -4,6 +4,7 @@ import { Direction } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { TourCategory, TourDifficulty, TourStatus } from '../../libs/enums/tour.enum';
 import { TourService } from './tour.service';
+import { TourAdminUpdate } from '../../libs/dto/tour/tour.update';
 
 describe('TourService search and access boundaries', () => {
 	const owner = new Types.ObjectId().toHexString();
@@ -151,4 +152,56 @@ describe('TourService search and access boundaries', () => {
 	function pipeline(call = 0): unknown[] {
 		return (aggregate.mock.calls as unknown[][])[call][0] as unknown[];
 	}
+});
+
+describe('TourService admin partial update regressions', () => {
+	const tourId = new Types.ObjectId().toHexString();
+	const endSession = jest.fn();
+	const exec = jest.fn();
+	const updateExec = jest.fn();
+	const findOneAndUpdate = jest.fn();
+	const session = { withTransaction: async (work: () => Promise<unknown>) => work(), endSession };
+	const model = {
+		db: { startSession: () => Promise.resolve(session) },
+		findById: () => ({ session: () => ({ lean: () => ({ exec }) }) }),
+		findOneAndUpdate,
+	};
+	const service = new TourService(
+		model as unknown as ConstructorParameters<typeof TourService>[0],
+		{} as ConstructorParameters<typeof TourService>[1],
+		{} as ConstructorParameters<typeof TourService>[2],
+		{} as ConstructorParameters<typeof TourService>[3],
+		{} as ConstructorParameters<typeof TourService>[4],
+	);
+	beforeEach(() => {
+		jest.resetAllMocks();
+		exec.mockResolvedValue({
+			tourStatus: TourStatus.ACTIVE,
+			tourFeatured: false,
+			tourAvailableSeats: 2,
+			tourImages: ['tour.jpg'],
+			tourAvailableDates: [{ startDate: new Date('2035-01-01'), endDate: new Date('2035-01-02'), availableSeats: 2 }],
+			tourItinerary: [{ day: 1 }],
+			tourDurationDays: 1,
+			tourPrice: 100,
+		});
+		findOneAndUpdate.mockReturnValue({ lean: () => ({ exec: updateExec }) });
+		updateExec.mockResolvedValue({ _id: tourId, tourStatus: TourStatus.ACTIVE });
+	});
+	it.each([true, false])('changes only Featured to %s when the transformed DTO omits status', async (tourFeatured) => {
+		const input = Object.assign(new TourAdminUpdate(), { tourId, tourFeatured });
+		expect(Object.prototype.hasOwnProperty.call(input, 'tourStatus')).toBe(true);
+		await service.updateTourByAdmin(input);
+		expect(findOneAndUpdate).toHaveBeenCalledWith(
+			{ _id: tourId, tourStatus: TourStatus.ACTIVE },
+			{ $set: { tourFeatured } },
+			{ new: true, runValidators: true, session },
+		);
+		expect(endSession).toHaveBeenCalledTimes(1);
+	});
+	it('rejects a transformed empty update without opening a transaction', async () => {
+		await expect(service.updateTourByAdmin(Object.assign(new TourAdminUpdate(), { tourId }))).rejects.toThrow();
+		expect(findOneAndUpdate).not.toHaveBeenCalled();
+		expect(endSession).not.toHaveBeenCalled();
+	});
 });

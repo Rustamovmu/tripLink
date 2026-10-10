@@ -242,8 +242,11 @@ export class TourService {
 			throw new BadRequestException(Message.BAD_REQUEST);
 		}
 
-		const update: Partial<Omit<TourAdminUpdate, 'tourId'>> = { ...input };
-		delete (update as Partial<TourAdminUpdate>).tourId;
+		// Transformed DTOs include omitted class fields with undefined values.
+		// Only supplied fields may override the stored tour during partial updates.
+		const update: Partial<Omit<TourAdminUpdate, 'tourId'>> = {};
+		if (input.tourStatus !== undefined) update.tourStatus = input.tourStatus;
+		if (input.tourFeatured !== undefined) update.tourFeatured = input.tourFeatured;
 		if (Object.keys(update).length === 0) throw new BadRequestException(Message.NO_UPDATE_FIELDS);
 
 		const session = await this.tourModel.db.startSession();

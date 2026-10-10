@@ -620,3 +620,158 @@ Next proposed backend task: actual Postman verification with disposable fixtures
 - Suggested frontend commit: `perf(tours): update likes optimistically with rollback`.
 - Suggested backend documentation commit: `docs: record optimistic tour likes`.
 - Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
+
+### 2026-10-10 — Tour detail page design
+
+- Redesigned frontend `libs/components/triplink/TourDetail.tsx` with a prominent title/location header, real Top tour badge and likes count, wide photo gallery with arrows and selectable thumbnails, overview facts, agent profile, departure cards, day-by-day itinerary, inclusions and reviews navigation.
+- Added a desktop sticky price/booking sidebar and a stacked mobile layout through scoped `scss/triplink.scss` styles. Prices use USD locale formatting and strike through the original only for a genuine lower discount. Existing BookingForm, FavoriteButton, PublicReviews, TOUR query, session gating and mutation callbacks remain in place. Missing/broken photos retain the existing placeholder; absent agent/departures/itinerary have neutral text. Departure times remain visible for booking accuracy.
+- Added English/Korean/Russian translations in the three common.json locale files. No API/schema/domain-type/dependency/authentication changes or live record mutations.
+- Validation: Yarn typecheck, focused non-fixing ESLint with no warnings, SCSS compilation, git diff --check and all 25 existing frontend tests passed. A temporary React/JSDOM render verified gallery navigation, thumbnail selection, broken/missing image fallback, empty data, real discounts, Featured-only badge and existing booking/favorite/review integration props. Native visual verification was blocked by a macOS screen-capture failure; desktop/tablet/mobile visual acceptance remains outstanding. No server changes or commits.
+- Suggested frontend commit: `feat(tours): design tour detail gallery and booking layout`.
+- Suggested backend documentation commit: `docs: record tour detail design`.
+- Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
+### 2026-10-10 — Premium agents directory and follow controls
+
+- Redesigned frontend `libs/components/triplink/Profiles.tsx` AgentDirectory with a travel hero, readable profile cards, initials for missing portraits, actual tour/follower counts, profile links, accessible name search, clear-search control, result total and useful empty state. `MemberProfile` behavior is unchanged. Retained the existing AGENTS operation, follower sorting, pagination and public-session gating.
+- Updated only the `/agent` generic-banner condition in `libs/components/layout/LayoutBasic.tsx`; the directory supplies its own desktop/mobile hero. Added isolated `.triplink-agents` styles in `scss/triplink.scss` and translations in `public/locales/{en,kr,ru}/common.json`. Existing user edits to shared SCSS/locales and TourDetail.tsx were preserved.
+- Added real Interlaken hiking photography by aiden patrissi as `public/img/banner/agents-guide-hero.jpg`, sourced from https://unsplash.com/photos/a-group-of-people-walking-up-a-hill-next-to-a-lake-ya6RQ8tCoC8 under the Unsplash License. Attribution/download metadata is in `public/img/banner/AGENTS_SOURCE.md`. No generated image is used or represented as an agent portrait.
+- Added Follow/Unfollow buttons using the existing FOLLOW_TOGGLE mutation and server isFollowing/counter values. Refresh current member and directory after success; disable actions while pending and display success/error feedback. USER/AGENT may follow other members; ADMIN/self controls are omitted; anonymous visitors get a login link. Backend APIs/schema/permissions are unchanged.
+- Added `tests/agents-directory.test.cjs`: React/JSDOM tests with mocked transport run the real directory and useAction implementation, covering mutation variables, server counts/state after follow and unfollow, pending-click lock, failed request preservation, ADMIN/self/AGENT/anonymous visibility and login link.
+- Validation: Yarn typecheck passed after design and follow phases; focused non-fixing ESLint passed without warnings; SCSS compiled; git diff --check passed; all 26 frontend tests passed. Native Chrome desktop and 390px mobile screenshots verified real-photo crop and responsive layout; live name search/empty/clear states verified. The photo endpoint returned HTTP 200. Follow mutations were tested with mocked requests; no development record mutations were initiated by the agent. A user-origin follow success was visible in the shared browser and was not counted as an agent-run acceptance test. Shared chat emitted a connection-close warning during responsive layout switching; chat source was unchanged.
+- No server changes or Git commits. Suggested frontend commit: `feat(agents): redesign directory and add follow controls`.
+- Suggested backend documentation commit: `docs: record agents directory design and follow controls`.
+- Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
+
+### 2026-10-10 — Agent profile design and swipeable tour cards
+
+- Redesigned `/agent/detail` in frontend `libs/components/triplink/Profiles.tsx`: full-width scenic photograph, overlapping profile summary, initials fallback, actual tour/follower/following/like totals, existing role-aware follow/member-like actions, tour/review/connection sections and truthful empty review state. The real Lago di Braies photograph is the existing `public/img/banner/tours-alpine-lake.jpg`, with source/license recorded in `TOURS_SOURCE.md`. `/member` retains its existing presentation.
+- Updated `libs/components/layout/LayoutBasic.tsx` to let the agent detail page supply its own hero. Added scoped `.triplink-profile` responsive styling and shared native scroll-snap card gallery styles in `scss/triplink.scss`. Cards retain authentic prices, discounts, badges and favorite provider logic.
+- Updated shared `libs/components/triplink/Tours.tsx` photo galleries to horizontal native scrolling, supporting touch/trackpad swiping, previous/next arrows, wrapping counters, reduced-motion preference, active-slide keyboard focus and individual missing/broken-image fallbacks. Multiple-photo controls are omitted for single/missing photos. Corrected card favorite presentation from saves to likes; the existing favorite operation remains unchanged. PublicReviews now has an h2 and explicit empty-review text.
+- Corrected connection destinations in `libs/components/triplink/Members.tsx`: agent profiles use agent/detail, other members use member, and unavailable members render neutral text instead of an empty-ID link. Added English/Korean/Russian profile strings.
+- Added `tests/tour-card-gallery.test.cjs`, exercising native-scroll state changes, arrow wrapping, reduced motion, active link focus, missing/single/broken images, existing tour destinations, real discounts and likes labels. Updated the existing agents-directory test icon stub for the new profile import.
+- Validation: Yarn typecheck, focused non-fixing ESLint, SCSS compilation, git diff --check and all 27 frontend tests passed. Native Chrome desktop screenshots/accessibility confirmed hero/profile/card rendering, pluralized likes, connection URLs and live gallery arrow progression from photo 1 to 2 without navigation. Native mobile visual/gesture acceptance remains unverified: Chrome device-toolbar toggles did not expose a responsive viewport, and one native input call reported noWindowsAvailable. Responsive styles and native scroll behavior are covered by inspection and mocked gallery tests. No live follow/like/favorite mutations were initiated by the agent.
+- Preserved GraphQL/Apollo, authentication, backend APIs and existing user edits. No dependencies, backend source changes, servers or Git commits.
+- Suggested frontend commit: `feat(agents): redesign profile and add swipeable tour cards`.
+- Suggested backend documentation commit: `docs: record agent profile and gallery improvements`.
+
+
+### 2026-10-10 — Public profile connections and author articles
+
+- Inspected Nestar MemberFollowers/MemberFollowings/MemberArticles and TripLink follow resolver/service/DTOs and public article author filters. Adapted the existing frontend contract rather than copying Nestar-specific schema fields. No backend API/schema/source change.
+- Frontend `libs/components/triplink/Profiles.tsx`: follower/following labels and counts link to their lists; navigation exposes articles, followers and following; both profile types show public articles filtered by the visited member ID. Agent tours retain search.agentId. Public profile state remounts on viewer account changes; profile follow actions refresh mounted MEMBER/FOLLOWERS/FOLLOWINGS queries.
+- `libs/components/triplink/Members.tsx`: linked avatar/name rows route AGENT to agent/detail and USER to member, show role/country and actual follower/tour totals, and offer viewer-specific Follow/Unfollow. Wait for session hydration and remount lists on owner/list/viewer changes; maintain pagination and null-member handling. Actions lock duplicate clicks, report failures, refresh current member and all mounted relationship/profile queries. ADMIN/self actions omitted; anonymous visitors see login links.
+- `libs/components/triplink/Community.tsx`: optional public memberId filter reuses ARTICLES without changing documents; public profile lists omit owner editing controls. Existing community/mine/admin behavior retained.
+- `scss/triplink.scss`: wrapping connection cards, focus styles, contrast and anchored-section scroll offsets. Added English/Korean/Russian empty/action/role strings in common.json files. Updated existing directory test import mock and added `tests/profile-connections.test.cjs` for visited-owner Variables, USER/AGENT destinations, viewer state, follow/unfollow, pending lock, errors, role/self/login/hydration rules and public article author filtering.
+- Validation: Yarn typecheck, focused non-fixing ESLint without warnings, SCSS compilation, git diff --check and all 29 frontend tests passed. Native Chrome accessibility/screenshot inspection confirmed profile count/list links, author articles, connection destinations and viewer-specific controls; follow mutations were tested with mocks, not development-record writes. Mobile visual acceptance and live mutation acceptance were not performed.
+- No dependencies, commits, backend source edits or new servers. Suggested frontend commit: `feat(profiles): connect followers and public member content`. Suggested backend documentation commit: `docs: record public profile connections`.
+
+
+### 2026-10-10 — Community hero and article cards
+
+- Inspected Nestar CommunityCard, TripLink public article DTOs/resolver permissions and existing ArticlesList. Redesigned only the public community catalog through `libs/components/triplink/Community.tsx`; profile/mine/admin article lists and existing moderation/editing remain intact.
+- Replaced the property illustration with a full-width real Istanbul photograph from existing `public/img/homepage/istanbul.jpg` (existing source/license recorded in `public/img/homepage/SOURCES.md`). Community supplies its own desktop/mobile hero; `libs/components/layout/LayoutBasic.tsx` excludes the generic banner only for /community. No downloaded or generated assets.
+- Added CommunityArticleCard with actual article images, category covers for missing/broken images, excerpt, date, author avatar/profile destination, correct like/comment pluralization and reading links. ADMIN author profiles remain unlinked; USER/AGENT authors route appropriately; unavailable authors render neutral text. Existing ARTICLE_LIKE mutation is used for authenticated card likes, with independent pending locks/error feedback and no success banner; anonymous likes link to login.
+- Added category filter buttons using the existing ARTICLES inquiry and resetting pagination. Loading/error/retry, explicit empty state and existing pagination retained. Eligible AGENT authors get the existing writeArticle workspace destination. No artificial articles, counters or claims.
+- Added scoped responsive styles in `scss/triplink.scss`: three/two/one-column cards, panoramic hero, readable wrapping titles, focus styles and anchored feed offset. Added English/Korean/Russian translations in common.json files.
+- Added `tests/community-cards.test.cjs` covering article/author routes, cover fallback, filter Variables, pending double-click protection, like response state, failure feedback, anonymous login and unavailable authors. Validation: Yarn typecheck, focused non-fixing ESLint (no warnings), SCSS compilation, git diff --check and all 32 frontend tests passed. Native Chrome desktop screenshots confirmed real hero and two actual article-photo cards. Final title wrapping and newly added count translations were corrected after visual inspection; final refreshed/mobile screenshots were interrupted by concurrent user browser activity. No live article/like mutations were initiated.
+- No architecture/dependency/backend/API changes, new servers or commits. Suggested frontend commit: `feat(community): redesign hero and article cards`. Suggested backend documentation commit: `docs: record community catalog design`.
+
+
+### 2026-10-10 — Community article reading and discussion design
+
+- Redesigned frontend `/community/detail` in `libs/components/triplink/Community.tsx` with a readable article card, category label, actual title/byline/date, uncropped uploaded photo, plain-text content, engagement footer, author sidebar/profile destination and community discovery link. Missing authors remain neutral; ADMIN authors remain unlinked; USER/AGENT authors retain their public destinations.
+- Replaced the illustrated property hero with a full-width real Kyoto photograph from existing `public/img/homepage/kyoto.jpg`; existing source/license is recorded in `public/img/homepage/SOURCES.md`. LayoutBasic omits the generic banner for this route. No new downloaded/generated assets.
+- Retained ARTICLE/COMMENTS inquiries, mutation documents, role-aware comment editing/moderation, pagination, loading/error/retry and invalid-ID handling. Likes retain pending locks, server refetch and error feedback while suppressing success banners. Anonymous visitors have login links for likes/comments. The discussion component remounts on article ID changes and shows an explicit empty state.
+- Added scoped responsive `.triplink-journal` styles in `scss/triplink.scss` and English/Korean/Russian translations. Uploaded images fit without cropping, long titles and body text wrap, sidebar collapses at narrower widths, keyboard focus and anchored discussion offsets are visible.
+- Added `tests/community-detail.test.cjs` for safe literal content, author destinations, image fallback, pending duplicate-like protection, correct mutation target, viewer liked state, failure feedback, missing authors and anonymous discussion access.
+- Validation: Yarn typecheck, focused non-fixing ESLint, SCSS compilation, git diff --check and all 33 frontend tests passed. Native Chrome desktop screenshots/accessibility confirmed the real hero, article/photo/author cards, existing counters and discussion form/comment rows. Mobile visual acceptance and live mutations were not performed; mutation behavior was checked using mocks. Existing article opening retains backend view-count semantics.
+- No architecture/dependency/backend/API changes, new servers or commits. Suggested frontend commit: `feat(community): redesign article detail and discussion layout`. Suggested backend documentation commit: `docs: record community article detail improvements`.
+
+
+### 2026-10-10 — Help Center design
+
+- Inspected Nestar's FAQ category/accordion and notice-list reference, plus TripLink's help-center resolver/DTOs and existing public frontend queries. Preserved HELP_ENTRIES/HELP_ENTRY and public-only published content behavior; no backend/schema/API changes.
+- Redesigned frontend `pages/help-center/index.tsx` with its own full-width real Lofoten photograph from existing `public/img/homepage/lofoten.jpg` (source/license already in SOURCES.md), readable hero, anchored browse link and URL-preserving FAQ/notice tabs. `libs/components/layout/LayoutBasic.tsx` omits the generic illustrated banner for this route.
+- `libs/components/cs/Faq.tsx`: seven icon/topic cards replace the dropdown, retaining the existing topic/text query and page reset. Added All topics and Clear filters, styled accordions, meaningful empty publication/search states, and existing loading/error/retry/pagination.
+- `libs/components/cs/Notice.tsx`: publication cards with actual date/title/plain-text excerpt open the existing detail query/dialog. Search and pagination retained; dialog keeps loading/error/retry, adds empty handling and preserves close/focus behavior. No invented FAQs, notices or support promises.
+- Added scoped responsive Help Center/card/dialog styles in `scss/triplink.scss`, and English/Korean/Russian translations. Narrow screens stack search and notice cards and use two-column topics; long titles and content wrap, content preserves whitespace, and keyboard focus remains visible.
+- Added `tests/help-center.test.cjs` covering public category/topic/text filters, pagination reset, clear filters, literal safe content, notice selection Variables, dialog closing and publication empty states.
+- Validation: Yarn typecheck, focused non-fixing ESLint, SCSS compilation, git diff --check and all 34 frontend tests passed. Native Chrome desktop screenshots confirmed the real hero/topic cards and both empty FAQ/notice sections; published entries are currently absent so populated rendering/dialog interactions were checked with mocks. Mobile visual acceptance not performed. No development records mutated, dependencies, new servers or Git commits.
+- Suggested frontend commit: `feat(help-center): redesign hero, topics and notice cards`. Suggested backend documentation commit: `docs: record help center design improvements`.
+
+
+### 2026-10-10 — About TripLink design
+
+- Inspected Nestar's About page reference. Adapted its introduction/features structure to TripLink's tours/agent/community features without copying real-estate filler, fabricated metrics, partners or support claims.
+- Redesigned frontend `pages/about/index.tsx` with a full-width real Dolomites hero, actual feature introduction alongside a real Bali coastal photograph, linked tour/agent/community cards, tour discovery invitation and the existing simulated-payment/latest-five-chat disclosure plus Help Center link.
+- Reused local `public/img/homepage/dolomites.jpg` and `bali.jpg` with source/license already recorded in SOURCES.md; the inline image uses Next Image, intrinsic dimensions, responsive sizes, alt text and location caption. No downloaded/generated assets.
+- Added scoped `.triplink-about` styles in `scss/triplink.scss`: readable typography, full-width hero, responsive split introduction/feature cards, wrapping long text and keyboard focus. Added English/Korean/Russian About strings in common.json files. No GraphQL/API/backend integration or architecture changes.
+- Validation: Yarn typecheck, focused non-fixing ESLint (no warnings), SCSS compilation, git diff --check and all 34 existing frontend tests passed. Native Chrome screenshot confirmed the real hero image, introduction/Bali photograph, wrapping feature cards and public destinations. Final scroll-to-top/full-page review was interrupted by concurrent user browser changes/noWindowsAvailable; mobile visual acceptance was not performed. No application records mutated, dependencies, new servers or Git commits.
+- Suggested frontend commit: `feat(about): add travel hero and connected feature sections`. Suggested backend documentation commit: `docs: record about page design improvements`.
+
+
+### 2026-10-10 — Member workspace and profile form design
+
+- Inspected Nestar MyMenu/MyProfile and current TripLink Workspace/ProfileForm. Reused role-specific categories/aliases, Access protection, existing child panels, account update/auth refresh and multipart uploads; no API/schema/backend changes.
+- `libs/components/triplink/Workspace.tsx`: compact full-width real Cappadocia hero (existing locally licensed homepage image), account/avatar/role sidebar, native category links with current-page semantics, section heading, and responsive navigation. USER/AGENT/ADMIN choices and inaccessible-section handling retained. `libs/components/layout/LayoutBasic.tsx` omits the illustrated property banner on /mypage.
+- `libs/components/triplink/Members.tsx`: profile image/upload card, grouped Personal details fieldset, optional native password disclosure, and save footer. Existing field names, values, constraints, password validation, update payload/auth handling, feedback and upload action remain intact. Initials provide a fallback for missing photos.
+- Added scoped responsive workspace/profile form styles in `scss/triplink.scss` and English/Korean/Russian translations. Desktop sidebar and two-column fields collapse on narrow screens; long content wraps and current navigation/focus remain visible.
+- Added `tests/workspace-profile.test.cjs` verifying role destinations, legacy aliases, inaccessible sections, grouped fields/defaults, unchanged profile update payload, destination parsing, optional password omission, invalid-password rejection and successful password/auth refresh behavior with mocks.
+- Validation: Yarn typecheck, focused non-fixing ESLint, SCSS compilation, git diff --check and all 35 frontend tests passed. No live profile/password/upload mutation, dependency, new server or Git commit.
+- Suggested frontend commit: `feat(workspace): redesign navigation and profile settings`. Suggested backend documentation commit: `docs: record workspace design improvements`.
+
+- Desktop visual follow-up: native Chrome confirmed Cappadocia hero, account sidebar, grouped profile card and optional password disclosure. Corrected active navigation text contrast against a global link-color override; final SCSS compilation/diff checks passed. Mobile appearance remains unverified.
+
+### 2026-10-10 — Admin member directory and management tools
+
+- Frontend request: redesign `/_admin/users` and add practical admin tools while preserving Apollo, current permissions, and individual member updates. Inspected TripLink member administration and corresponding Nestar frontend table/backend update service. `skills/admin-panel/SKILL.md` exists but is empty; applied user-project and frontend-design guidance.
+- Frontend files: `libs/components/layout/LayoutAdmin.tsx`, `libs/components/admin/AdminMenuList.tsx`, `libs/components/triplink/AdminMembers.tsx`, `pages/_admin/users/index.tsx`, `scss/triplink.scss`, `public/locales/{en,kr,ru}/common.json`, `tests/admin-members.test.cjs`.
+- Replaced red admin chrome with a teal account header and icon navigation, including accessible current-page links and a mobile drawer. Member directory now uses a compact responsive scrollable table, real avatars/initials, role/status labels, join dates, and activity counts. Individual editors expand on demand and support reset; save is disabled for unchanged or invalid nicknames. Own-account role/status remain disabled and omitted from update payloads.
+- Added server-backed quick filters, clear filters, refresh, adjustable 12/24/48-row pagination, copy member ID, and active USER/AGENT public profile links. Summaries distinguish matching-result totals from page-only agent/pending counts. No unsupported global analytics, bulk mutations, or private account fields were added.
+- Validation: Yarn typecheck, focused non-fixing ESLint (zero errors/warnings), all 36 frontend tests, Sass compilation, and diff whitespace checks passed. New mocked regression test covers filters/search/page size/reset, refresh/copy-ID, profile eligibility, edit/reset payloads and own-account protection.
+- Native Chrome desktop preview confirmed directory/editor layout, disabled own-account role/status, live blocked-member filtering and clear-filter restoration. Final reload confirmed translated Blocked label. No live account mutation or role/status change was performed; mobile styles were checked in source, not visually exercised on a mobile viewport.
+- Backend API/schema/security rules unchanged. This backend repository change is completion documentation only; no additional Postman verification was required.
+- Suggested frontend commit: `feat(admin): redesign member management and add admin tools`. Suggested backend documentation commit: `docs: record admin member management frontend improvements`.
+- Next proposed backend task remains separately authorized Postman verification; no new backend feature was implemented.
+
+### 2026-10-10 — Fix admin Feature / Unfeature partial updates
+
+- User reported `/_admin/tours` Feature returning `Not Allowed Request!`. The frontend already sends the correct `{tourId, tourFeatured}` payload. Reproduced the backend DTO transformation: native class fields create an own `tourStatus: undefined` even when omitted. Spreading the transformed DTO into the update overwrote the stored ACTIVE status during merged-tour validation.
+- Updated `apps/trip-link/src/components/tour/tour.service.ts` to build admin updates only from explicitly supplied `tourStatus` and `tourFeatured` values. False remains a valid unfeature update; omitted fields never override stored values. Existing admin authorization, transaction/concurrency controls, publication rules and null validation remain unchanged. Empty transformed updates now correctly reject before opening a transaction.
+- Reference: inspected Nestar `apps/nestar-api/src/components/property/property.service.ts` admin update and existing TripLink frontend `OwnedTours`. Nestar does not have an equivalent tour feature flag; this fix follows TripLink's existing partial-update contract.
+- Tests changed: `apps/trip-link/src/components/tour/tour.service.spec.ts` (transformed DTO true/false and empty-update regressions), `apps/trip-link/test/tour.e2e-spec.ts` (real GraphQL feature/unfeature with omitted status, unchanged ACTIVE state, empty/null/non-admin rejection, stored-row verification).
+- Validation: backend non-writing `yarn tsc --noEmit --incremental false`, focused non-fixing ESLint (zero errors/warnings), 10 focused unit tests, 13 tour GraphQL integration tests, and diff checks passed. Initial integration attempt was blocked by sandbox MongoDB DNS restrictions; rerun with approved network access passed. Integration suite used an exact-name-checked uniquely named disposable `tl_tour_e2e_*` database and dropped it in cleanup, closed its application, and restored the environment. No development account/tour data was changed; the user's server was left running.
+- No frontend, schema, or role-policy changes. API behavior corrected for the existing admin mutation; no actual Postman request or saved live example was created.
+- Suggested backend commit: `fix(tours): preserve status in admin feature updates`.
+- Next proposed backend task remains separately authorized Postman verification.
+
+#### Postman verification recipe for Feature / Unfeature
+
+- Endpoint: POST `http://localhost:3008/graphql` on a separately started disposable test server (substitute its actual free port). Normal development endpoint is `http://localhost:3007/graphql`; do not alter development records to run this recipe.
+- Prerequisites: uniquely named disposable database, ACTIVE AGENT and ADMIN fixture tokens, USER fixture token for rejection testing, and a publishable fixture tour submitted by its AGENT and approved ACTIVE by ADMIN. Keep tokens in local Postman authorization; do not put them in this guide or save them in responses.
+- Operation:
+
+```graphql
+mutation AdminFeatureTour($input: TourAdminUpdate!) {
+  updateTourByAdmin(input: $input) {
+    _id
+    tourStatus
+    tourFeatured
+  }
+}
+```
+
+- Exact Variables JSON (replace fixture ID with the disposable ACTIVE tour ID):
+
+```json
+{"input":{"tourId":"DISPOSABLE_ACTIVE_TOUR_ID","tourFeatured":true}}
+```
+
+1. Set ADMIN Bearer token and send. Expect HTTP 200 with no GraphQL errors, original `_id`, `tourStatus: ACTIVE`, and `tourFeatured: true`; `tourStatus` must be omitted from Variables.
+2. Repeat with `tourFeatured: false`; expect the same ACTIVE status and featured false. Read the fixture through existing admin/public queries to confirm persistence.
+3. Use the USER token and the original true Variables; expect GraphQL FORBIDDEN and no stored change. Missing/invalid token must reject with UNAUTHENTICATED.
+4. With ADMIN token, send `{"input":{"tourId":"DISPOSABLE_ACTIVE_TOUR_ID"}}` and then `{"input":{"tourId":"DISPOSABLE_ACTIVE_TOUR_ID","tourFeatured":null}}`; both reject BAD_REQUEST and preserve the fixture. Feature a DRAFT fixture using its ID and true; expect BAD_REQUEST and unchanged draft state.
+5. Clean up only the exact disposable database after verifying its name; close the task-owned server/application and clear local fixture IDs/tokens. These are manual test instructions, not saved Postman examples.
