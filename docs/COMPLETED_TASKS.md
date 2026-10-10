@@ -585,3 +585,38 @@ Next proposed backend task: actual Postman verification with disposable fixtures
 - Suggested frontend commit: `feat(home): show articles with authors and comment previews`.
 - Suggested backend documentation commit: `docs: record homepage articles section`.
 - Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
+
+### 2026-10-10 — Tours catalog redesign
+
+- Replaced the tall search form in `libs/components/triplink/TourSearch.tsx` with text search, Apply/Reset and segmented Destinations, Dates, Duration, Price, Activity level, Sort and More filters panels. Native details keep draft fields mounted; Escape/outside-click dismiss panels. Category/rating/seats remain available; invalid native fields/ranges open their panel with guidance. Existing URL normalization, hidden filters, exact date instants, pagination, router readiness and Apollo transport are preserved.
+- Added Tours-only banner markup in `libs/components/layout/LayoutBasic.tsx` for desktop/mobile, using a locally hosted Lago di Braies photograph by Marcus Ganahl. `public/img/banner/tours-alpine-lake.jpg` and `TOURS_SOURCE.md` record the image and Unsplash source/license. Heading: Tours / Find your next journey. Desktop/mobile minimum heights: 320/200px.
+- Scoped catalog styling in `scss/triplink.scss`: desktop/tablet/mobile grids use three/two/one columns; cards retain galleries, role-aware favorites, truthful prices and badges. Catalog view/save statistics and category labels are hidden; member/profile grids keep their existing styles. No promotional tile, invented claims, dependency, API/schema/domain type or authentication changes.
+- Updated English/Korean/Russian locale files. Extended `tests/tour-search-hydration.test.cjs` with panel persistence, deferred application, combined inputs, incomplete ranges, Escape focus restoration, outside dismissal, Reset and URL back/forward restoration; fixed the test Box stub to forward refs.
+- Validation: Yarn typecheck, focused non-fixing ESLint, SCSS compilation and whitespace checks passed. All 23 configured frontend tests passed. Downloaded banner decoded and visually inspected. Live Chrome screenshot/accessibility inspection confirmed compact desktop panels, catalog layout and signed-in ADMIN reads. Anonymous read-only catalog GraphQL request passed. Tablet/375px native screenshots and full native keyboard/gallery acceptance remain outstanding because user activity interrupted browser control; responsive CSS and existing gallery/favorite code were inspected. No development writes or favorite toggles, no API/detail mutations, new servers, commits or Postman examples.
+- Suggested frontend commit: `feat(tours): redesign catalog filters and alpine banner`.
+- Suggested backend documentation commit: `docs: record tours catalog redesign`.
+- Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
+
+### 2026-10-10 — Calendar-only tour filters, combined sort and visible likes
+
+- Updated `TourSearch.tsx` date inputs to calendar-only dates and replaced Sort/Order with one combined sorting selector. All eight backend sort fields retain both directions via descriptive options, without a separate Order control. Edited dates become local midnight/end-of-day ISO instants; untouched URL date instants remain unchanged.
+- Added `calendarDateInstant` to `libs/triplink/tourSearchUrl.ts`, validating calendar dates and including the entire end day through DST transitions. Existing URL parser/application contracts and GraphQL integration are preserved.
+- Added catalog-only presentation through `Tours.tsx`: hearts visible for all roles, ADMIN/ineligible hearts disabled, anonymous hearts link to login, eligible USER/AGENT hearts retain the existing favorite toggle. Likes display the real tourFavoriteCount and response-backed count updates; no separate tour-like API was invented. Featured tours show a Top tour badge using tourFeatured, not an inferred or fabricated ranking. Profile/saved grids keep existing labels/presentation.
+- Changed scoped styles, English/Korean/Russian locale files, and two existing search test files. Tests assert date-only controls, absence of a direction field, combined sort submission, full-day conversion, DST and invalid calendar rejection. Temporary mocked-card rendering checks cover disabled ADMIN hearts, anonymous login, eligible pressed states, response counts and Featured-only Top tour badges.
+- Validation: Yarn typecheck, focused non-fixing ESLint, SCSS compilation and diff whitespace checks passed; all 24 frontend tests passed. Native browser visual verification was not rerun for this follow-up. No backend API/schema/permissions, database records, counters or uploaded images changed.
+- Suggested frontend commit: `fix(tours): simplify date sorting filters and show likes`.
+- Suggested backend documentation commit: `docs: record tour filters and likes follow-up`.
+- Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
+
+### 2026-10-10 — Immediate tour heart/count feedback
+
+- Updated `TourFavorites.tsx` to optimistically toggle the heart and adjust the visible favorite/like count before awaiting the existing mutation. On success, reconcile with server favorited/count fields; on failure, restore that tour's prior state/count and show the error. Per-tour locks and stale-session protections remain, including concurrent requests on different tours.
+- `Tours.tsx` and homepage `HomeSections.tsx` now supply displayed counts to the shared toggle. Scoped SCSS uses a neutral pending cursor instead of the busy cursor; ADMIN/ineligible catalog hearts remain disabled with a not-allowed cursor.
+- Added `tests/tour-favorites.test.cjs`, exercising real provider state with deferred mocked requests: immediate add/remove, authoritative server count, rollback, duplicate protection, independent concurrent tours and late response after logout.
+- Validation: Yarn typecheck, focused non-fixing ESLint, SCSS compilation, diff whitespace checks and all 25 frontend tests passed. No live mutation or development counter changes. This improves immediate UI feedback; backend request latency was not measured or modified. No API/schema/permissions/dependency changes, native browser acceptance rerun, server changes or commits.
+- Suggested frontend commit: `perf(tours): update likes optimistically with rollback`.
+- Suggested backend documentation commit: `docs: record optimistic tour likes`.
+- Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
