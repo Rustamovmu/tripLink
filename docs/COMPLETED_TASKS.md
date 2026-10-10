@@ -521,3 +521,67 @@ Suggested frontend commit: feat: add distinct homepage tour agent and event card
 Suggested backend documentation commit: docs: record homepage section redesign
 
 Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
+## Homepage editorial section backgrounds — 2026-10-10
+
+Implemented the approved travel editorial design below the existing hero. Changed frontend files: pages/index.tsx, libs/components/homepage/HomeSections.tsx, scss/triplink.scss and public/locales/en/common.json, public/locales/kr/common.json, public/locales/ru/common.json. Replaced the enclosing page container with five full-width bands and aligned 1200px inner containers. Featured uses pale teal and the existing Swiss Alps image; Best rated uses a cool light background, Hirosaki blossoms and white cards; Top agents uses deep teal with white profile cards and a light loading indicator; Top tours uses an opaque teal copy panel beside Istanbul photography; Events uses pale blue with existing photographic cards. Added translated editorial introductions, responsive padding and stacked mobile introductions. Decorative images use empty alt text and are not represented as API tour photos. Preserved hero/search/navigation, ranking queries, cards, saved-tour state, links and independent query states. No dependencies, downloads, API/schema/domain/Apollo changes.
+
+Passed Yarn non-writing typecheck, scoped non-fixing ESLint with zero errors/warnings, in-memory SCSS compilation and diff whitespace checks. Existing ephemeral real React/MUI/i18next/JSDOM harness with mocked Apollo/router adapters passed all three locales, query states, tour prices/status, role-specific controls and shared USER/AGENT saved state. Live Chrome accessibility inspection confirmed all editorial introductions, section links and real tour/agent/event content; Featured currently has no results. Native browser scrolling failed with noWindowsAvailable, preventing full desktop/tablet/375px visual, image-crop and keyboard acceptance. Those remain unverified; no browser role mutations or development data writes were performed. No servers restarted, builds, Postman requests or commits.
+
+Suggested frontend commit: feat: add editorial backgrounds to homepage sections
+
+Suggested backend documentation commit: docs: record homepage editorial section backgrounds
+
+Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
+## Homepage automatic photo sliders and Top tours video — 2026-10-10
+
+Implemented the user's request to add automatic image Swipers to Featured and Best rated introductions and a video to Top tours, preserving the editorial section work already present. Frontend changes for this addition: new libs/components/homepage/IntroMedia.tsx, integration in libs/components/homepage/HomeSections.tsx, scoped media styles in scss/triplink.scss, translated media-control labels in public/locales/{en,kr,ru}/common.json, and public/video/top-tours-temple.mp4, top-tours-temple.jpg and SOURCES.md. Existing Yarn-installed Swiper 8 supplies looping photo sliders with 5-second autoplay, previous/next and pause/resume, hover/focus/document visibility pause and reduced-motion handling. No new dependencies or GraphQL/API changes.
+
+User selected Ali Kargı's Pexels clip https://www.pexels.com/video/aerial-view-of-temple-in-city-11208054/ after declining the initially proposed download. Downloaded the exact selected 1920x1080 MP4 locally (approximately 6.7 MB, 10 seconds), documented its Pexels license/source and extracted a 1280x720 poster. Existing ads.mov is untouched. Top tours video is muted, looping and inline, loads on visibility, pauses offscreen/hidden or for reduced motion, supports persistent manual pause/resume, and falls back to the existing Istanbul image on media failure.
+
+Passed Yarn typecheck, scoped non-fixing ESLint, in-memory SCSS compilation and diff whitespace checks. An ephemeral JSDOM harness using actual Swiper/React verified autoplay start/stop, pause/resume, reduced motion and teardown; simulated HTML media methods/IntersectionObserver verified muted/loop/inline/preload attributes, viewport pause, persistent user pause, resume and image error fallback. Native AVFoundation decoded the selected video and generated its poster outside the sandbox after sandbox decoding was blocked; visually inspected the extracted frame. Live Chrome accessibility inspection confirmed both slider regions/controls and the Top tours video/pause control; a screenshot confirmed Featured/Best rated photo slider layout. Full mobile/tablet and live browser video-loop/keyboard acceptance remain unverified. No development records, sessions or counters changed, no servers restarted, builds or commits.
+
+Suggested frontend commit: feat: add homepage photo sliders and Istanbul video
+
+Suggested backend documentation commit: docs: record homepage slider and video update
+
+Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
+
+
+### 2026-10-10 — Featured tours accordion photo introduction
+
+- Replaced only the Featured tours introductory Swiper with an accordion photo gallery inspired by https://reactbits.dev/components/accordion-gallery. Existing Iceland, Sossusvlei, and Petra assets and translated labels are reused; no dependencies added.
+- Added `libs/components/homepage/IntroGallery.tsx`, integrated through `HomeSections.tsx`, and scoped SCSS. Desktop panels expand horizontally; phone panels stack vertically. Hover, tap, arrow/Home/End keyboard focus, optional five-second auto advance, pause/resume, reduced-motion and hidden-document pause are supported.
+- Best rated keeps its independent rectangular slider. Tour cards, saved controls, GraphQL queries and Top tours video retain their behavior.
+- Validation: Yarn typecheck, scoped non-fixing ESLint, SCSS compilation, git diff --check passed. A temporary React/JSDOM harness verified auto advance, focus pause, keyboard focus navigation, tap selection, persistent pause/resume, reduced motion and timer cleanup. Live browser visual verification of this gallery at desktop/tablet/375px remains outstanding.
+- Suggested frontend commit: `feat(home): add featured tours accordion gallery`; backend docs commit: `docs: record featured accordion gallery work`.
+
+
+### 2026-10-10 — Separate photographic collections for homepage sections
+
+- Downloaded 13 new Unsplash photographs: ten in `public/img/homepage/featured/` and three in `public/img/homepage/rated/`. Featured accordion and Best rated slider now use separate assets; neither collection reuses hero or event photographs. Tour/API images remain governed by existing query data.
+- Updated `IntroGallery.tsx`, `IntroMedia.tsx`, and introduction metadata in `HomeSections.tsx`. Removed the unused hero-based Featured slide list. Top tours video fallback now uses the video poster instead of a hero photograph. Existing event photographs and hero assets remain unchanged.
+- Recorded exact source pages, download URLs, and photographer metadata in `public/img/homepage/SOURCES.md`; all pages identify free photos under the Unsplash License. Decoded all 13 JPEGs and visually reviewed landscape crop previews. Verified unique file hashes against existing hero/event images.
+- Validation: Yarn typecheck, scoped non-fixing lint, whitespace checks and temporary React/JSDOM media interaction checks passed. Live responsive browser visual verification remains outstanding.
+- Suggested frontend commit: `feat(home): give sections distinct photo collections`; backend docs commit: `docs: record separate homepage photograph collections`.
+
+
+### 2026-10-10 — Best rated circular carousel and new photo collection
+
+- Added `libs/components/homepage/IntroCircularCarousel.tsx`, a CSS 3D cylinder interpretation of https://reactbits.dev/components/circular-carousel. Integrated only the Best rated introduction through `HomeSections.tsx`; scoped presentation in `scss/triplink.scss`. No dependencies, GraphQL, domain type or backend changes.
+- Downloaded 13 new source photographs into `public/img/homepage/rated-circular/`: replaced the previous three photos and added ten. Verified no JPEG hash duplicates against any previous local assets. Sources and photographer metadata are recorded in `public/img/homepage/SOURCES.md`; all source pages identify free use under the Unsplash License. Decoded every asset and reviewed portrait crop previews.
+- Provides optional five-second auto advance, previous/next, horizontal swipe, arrow/Home/End keyboard navigation, manual pause/resume, hover/focus/hidden-document pause, and reduced-motion support. Native vertical scrolling is preserved. Existing translations supply labels; tour rating cards, query states, and links remain unchanged.
+- Validation: Yarn typecheck, scoped non-fixing ESLint, SCSS compilation, git diff --check, and temporary React/JSDOM checks passed. Tests cover all 13 local files, keyboard wrapping, swipe, vertical gesture rejection, autoplay and pause/resume, focus/reduced-motion/hidden-document pauses, and timer cleanup. Actual desktop Chrome screenshot confirms the carousel renders with the existing section and cards. Tablet and 375px visual checks remain outstanding; native UI interaction reported a changed-app state during navigation.
+- Suggested frontend commit: `feat(home): add best rated circular photo carousel`; backend docs commit: `docs: record best rated circular carousel work`.
+
+
+### 2026-10-10 — Homepage articles with authors and comment previews
+
+- Added `libs/components/homepage/HomeArticles.tsx` and mounted it between Top tours and Events through `HomeSections.tsx`. Shows up to three newest published articles across categories using existing typed ARTICLES/COMMENTS queries and session-readiness handling.
+- Cards display uploaded photos with error/missing-image fallback, category, title, plain-text excerpt, author avatar/name with nullable-author fallback, publication date, comment total and two newest comment previews with commenter names. Links reuse community list/detail routes. No homepage publishing/editing/comment-entry actions were added.
+- Added scoped three/two/one-column desktop/tablet/mobile styles in `scss/triplink.scss` and English/Korean/Russian interface translations. No dependencies, API/schema/domain types, authentication or Apollo transport changed.
+- Validation: Yarn typecheck, scoped non-fixing ESLint (zero warnings/errors), SCSS compilation and frontend diff whitespace checks passed. A temporary React/JSDOM harness with mocked query states verified request variables, two-comment previews, links, safe text rendering, null authors/photos, image failure, zero comments, loading/empty/error isolation, retry, session gating and locale keys. Anonymous read-only requests to the running backend returned articles and two newest comments. Chrome accessibility inspection of the existing signed-in ADMIN homepage confirmed the section placement, author and comment preview; the existing browser page had stale translation props until reload. Full native visual/mobile/keyboard verification remains outstanding; responsive breakpoints and focus styling were inspected in source. No task-created backend records, counters, uploads, Postman examples, servers or commits.
+- Suggested frontend commit: `feat(home): show articles with authors and comment previews`.
+- Suggested backend documentation commit: `docs: record homepage articles section`.
+- Next proposed backend task: actual Postman verification with disposable fixtures and clearly named live examples, under separate approval.
