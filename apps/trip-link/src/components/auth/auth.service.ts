@@ -29,6 +29,7 @@ type TokenMember = Pick<Member, 'memberType' | 'memberNick'> & {
 
 type AuthMemberRecord = {
 	_id: Types.ObjectId;
+	memberImage?: string;
 	memberStatus: MemberStatus;
 	memberType: MemberType;
 	memberNick: string;
@@ -61,7 +62,10 @@ export class AuthService {
 		return this.jwtService.signAsync(payload);
 	}
 
-	public async verifyToken(token: string): Promise<AuthTokenPayload> {
+	public async verifyToken(
+		token: string,
+		includeMemberImage = false,
+	): Promise<AuthTokenPayload & { memberImage?: string }> {
 		let payload: AuthTokenPayload;
 		try {
 			payload = await this.jwtService.verifyAsync<AuthTokenPayload>(token);
@@ -80,7 +84,7 @@ export class AuthService {
 		// Do not catch database errors as authentication failures or cache account state across requests.
 		const member = await this.memberModel
 			.findById(payload.sub)
-			.select('_id memberStatus memberType memberNick')
+			.select(`_id memberStatus memberType memberNick${includeMemberImage ? ' memberImage' : ''}`)
 			.lean<AuthMemberRecord>()
 			.exec();
 		if (!member || member.memberStatus === MemberStatus.DELETE || member.memberType !== payload.memberType) {
@@ -89,6 +93,13 @@ export class AuthService {
 		if (member.memberStatus !== MemberStatus.ACTIVE) {
 			throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
 		}
-		return { ...payload, sub: member._id.toHexString(), memberType: member.memberType, memberNick: member.memberNick };
+		return {
+			...payload,
+			sub: member._id.toHexString(),
+			memberType: member.memberType,
+			memberNick: member.memberNick,
+			// Chat photos come from the current account, never from client commands or JWT image claims.
+			...(includeMemberImage ? { memberImage: typeof member.memberImage === 'string' ? member.memberImage : '' } : {}),
+		};
 	}
 }

@@ -11,6 +11,7 @@ export const CHAT_TYPING_EXPIRE_MS = 5000;
 export interface ChatMember {
 	_id: string;
 	memberNick: string;
+	memberImage?: string;
 	memberType: MemberType;
 }
 

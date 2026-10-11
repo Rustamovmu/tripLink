@@ -182,8 +182,13 @@ export class SocketGateway implements OnGatewayConnection<WebSocket>, OnGatewayD
 	}
 
 	private async verify(token: string): Promise<ChatMember> {
-		const member = await this.auth.verifyToken(token);
-		return { _id: member.sub, memberNick: member.memberNick, memberType: member.memberType };
+		const member = await this.auth.verifyToken(token, true);
+		return {
+			_id: member.sub,
+			memberNick: member.memberNick,
+			memberType: member.memberType,
+			memberImage: member.memberImage ?? '',
+		};
 	}
 
 	private async validRecipients(): Promise<ChatClient[]> {

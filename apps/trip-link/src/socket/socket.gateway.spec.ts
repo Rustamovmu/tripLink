@@ -80,7 +80,7 @@ describe('SocketGateway authentication and command boundaries', () => {
 		expect(chat.history()).toHaveLength(1);
 		expect(chat.history()[0]).toMatchObject({
 			text: 'hello',
-			memberData: { _id: payload.sub, memberNick: payload.memberNick, memberType: payload.memberType },
+			memberData: { _id: payload.sub, memberNick: payload.memberNick, memberType: payload.memberType, memberImage: '' },
 		});
 		const frames = JSON.stringify(client.frames);
 		for (const forbidden of ['private-token', '"iat"', '"exp"', 'memberPassword', 'memberEmail'])
@@ -92,6 +92,32 @@ describe('SocketGateway authentication and command boundaries', () => {
 			'presence',
 			'message',
 		]);
+	});
+
+	it('includes only the verified profile photo and public identity in chat frames', async () => {
+		verify.mockResolvedValue({
+			...payload,
+			memberImage: 'uploads/member/current.png',
+			memberEmail: 'private@example.com',
+		} as AuthTokenPayload);
+		const client = connect();
+		await authenticate(client);
+		expect(verify).toHaveBeenCalledWith('private-token', true);
+		send(client, 'message', 'photo identity');
+		send(client, 'typing', { isTyping: true });
+		await settle();
+		const expected = {
+			_id: payload.sub,
+			memberNick: payload.memberNick,
+			memberType: payload.memberType,
+			memberImage: 'uploads/member/current.png',
+		};
+		for (const frame of client.frames) {
+			if (frame.event === 'presence') expect(frame.data.list).toEqual([expected]);
+			else if (frame.data.memberData) expect(frame.data.memberData).toEqual(expected);
+		}
+		expect(chat.history()[0].memberData).toEqual(expected);
+		expect(JSON.stringify(client.frames)).not.toContain('private@example.com');
 	});
 
 	it('reports malformed JSON, binary, unknown events and invalid text without changing history', async () => {
@@ -199,7 +225,12 @@ describe('SocketGateway authentication and command boundaries', () => {
 		expect(client.frames.at(-1)).toEqual({
 			event: 'typing',
 			data: {
-				memberData: { _id: payload.sub, memberNick: payload.memberNick, memberType: payload.memberType },
+				memberData: {
+					_id: payload.sub,
+					memberNick: payload.memberNick,
+					memberType: payload.memberType,
+					memberImage: '',
+				},
 				isTyping: true,
 			},
 		});
@@ -218,7 +249,7 @@ describe('SocketGateway authentication and command boundaries', () => {
 		await authenticate(first);
 		await authenticate(second);
 		expect(second.frames.find((frame) => frame.event === 'presence')?.data).toEqual({
-			list: [{ _id: payload.sub, memberNick: payload.memberNick, memberType: payload.memberType }],
+			list: [{ _id: payload.sub, memberNick: payload.memberNick, memberType: payload.memberType, memberImage: '' }],
 			totalMembers: 1,
 			totalClients: 2,
 		});

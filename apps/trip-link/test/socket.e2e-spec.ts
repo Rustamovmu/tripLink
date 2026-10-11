@@ -13,7 +13,7 @@ import { SocketService } from '../src/socket/socket.service';
 import type { ChatResponse } from '../src/socket/socket.types';
 
 jest.setTimeout(30000);
-type Actor = { id: Types.ObjectId; token: string; role: MemberType; nick: string };
+type Actor = { id: Types.ObjectId; token: string; role: MemberType; nick: string; image: string };
 
 class LiveClient {
 	readonly socket: WebSocket;
@@ -123,8 +123,30 @@ describe('Authenticated shared group chat (real WebSocket e2e)', () => {
 				_id: user.id.toHexString(),
 				memberNick: user.nick,
 				memberType: user.role,
+				memberImage: user.image,
 			});
-			expect(Object.keys(response.data.memberData).sort()).toEqual(['_id', 'memberNick', 'memberType']);
+			expect(Object.keys(response.data.memberData).sort()).toEqual(['_id', 'memberImage', 'memberNick', 'memberType']);
+		}
+	});
+
+	it('carries saved USER, AGENT and ADMIN photos through authentication, presence and history', async () => {
+		for (const account of [user, agent, admin]) {
+			const client = await open();
+			client.send('authenticate', { token: account.token });
+			expect((await client.next('authenticated')).data.memberData.memberImage).toBe(account.image);
+			await client.next('getMessages');
+			const roster = (await client.next('presence')).data.list;
+			expect(roster.find((entry) => entry._id === account.id.toHexString())?.memberImage).toBe(account.image);
+			client.send('message', `photo-${account.role}`);
+			expect(
+				(await client.next('message', (frame) => frame.data.text === `photo-${account.role}`)).data.memberData
+					.memberImage,
+			).toBe(account.image);
+			client.send('getMessages', {});
+			expect(
+				(await client.next('getMessages')).data.list.find((entry) => entry.text === `photo-${account.role}`)?.memberData
+					.memberImage,
+			).toBe(account.image);
 		}
 	});
 
@@ -286,23 +308,30 @@ describe('Authenticated shared group chat (real WebSocket e2e)', () => {
 		},
 	);
 
-	it('checks idle recipients before broadcasts and refreshes the sending nickname from MongoDB', async () => {
+	it('checks idle recipients before broadcasts and refreshes the sending nickname and photo from MongoDB', async () => {
 		const recipient = await actor(MemberType.USER);
 		const a = await connect(recipient.token);
 		const b = await connect(agent.token);
 		await connection.collection('members').updateOne({ _id: recipient.id }, { $set: { memberStatus: 'BLOCK' } });
 		const refreshedNick = `updated-${new Types.ObjectId().toHexString()}`;
-		await connection.collection('members').updateOne({ _id: agent.id }, { $set: { memberNick: refreshedNick } });
+		await connection
+			.collection('members')
+			.updateOne(
+				{ _id: agent.id },
+				{ $set: { memberNick: refreshedNick, memberImage: 'uploads/member/refreshed.png' } },
+			);
 		b.send('message', 'recipient access check');
 		expect((await a.next('error')).data.code).toBe('FORBIDDEN');
 		expect(await a.closed).toBe(1008);
 		expect(a.frames.some((frame) => frame.event === 'message' && frame.data.text === 'recipient access check')).toBe(
 			false,
 		);
-		expect(
-			(await b.next('message', (frame) => frame.data.text === 'recipient access check')).data.memberData.memberNick,
-		).toBe(refreshedNick);
-		await connection.collection('members').updateOne({ _id: agent.id }, { $set: { memberNick: agent.nick } });
+		const refreshed = (await b.next('message', (frame) => frame.data.text === 'recipient access check')).data
+			.memberData;
+		expect(refreshed).toMatchObject({ memberNick: refreshedNick, memberImage: 'uploads/member/refreshed.png' });
+		await connection
+			.collection('members')
+			.updateOne({ _id: agent.id }, { $set: { memberNick: agent.nick, memberImage: agent.image } });
 	});
 
 	it('reports database errors as server errors without exposing internal details (injected failure)', async () => {
@@ -326,16 +355,19 @@ describe('Authenticated shared group chat (real WebSocket e2e)', () => {
 	async function actor(role: MemberType): Promise<Actor> {
 		const id = new Types.ObjectId();
 		const nick = `ws-${id.toHexString()}`;
+		const image = `uploads/member/${id.toHexString()}.png`;
 		await app.get<Model<unknown>>(getModelToken('Member')).create({
 			_id: id,
 			memberNick: nick,
 			memberPassword: 'disposable-test-hash',
+			memberImage: image,
 			memberType: role,
 			memberStatus: 'ACTIVE',
 		});
 		return {
 			id,
 			nick,
+			image,
 			role,
 			token: await app.get<AuthService>(AuthService).createToken({ _id: id, memberNick: nick, memberType: role }),
 		};

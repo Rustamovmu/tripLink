@@ -342,3 +342,11 @@ The approved upgrade adds distinct-member presence snapshots, authenticated per-
 - Non-writing backend typecheck and focused non-fixing socket lint passed.
 - 16 socket unit tests and 18 real WebSocket integration tests passed. The integration run used its uniquely named disposable database and ephemeral port, then cleaned up clients/application/database.
 - This is focused chat validation, not a new whole-backend acceptance run. No live Postman examples were saved, development records changed, or existing server stopped.
+
+
+## Focused shared-chat profile-photo acceptance — 2026-10-11
+
+- User requested saved member photos instead of initials. Chat identity now additionally exposes `memberImage` from the current verified account; no JWT claim, contact-data exposure, GraphQL change, extra profile query or migration was added. Missing photos are empty strings; older frames without the field remain frontend-compatible. ADMIN names remain unlinked.
+- Backend non-writing typecheck, focused non-fixing lint, 39 auth/socket unit tests and 19 real WebSocket integration tests passed. These supersede the earlier focused chat totals only for the changed suites; they are not a whole-backend acceptance rerun.
+- Frontend Yarn typecheck, focused non-fixing lint and 50 tests passed. The seven chat tests include the actual MUI Avatar with controlled image-load failures, current/removed photos, all roles, legacy/offline messages and People-view photos.
+- [Chat contract and exact photo Postman frames](shared-chat.md#profile-photo-verification--2026-10-11) document setup, responses, spoofing rejection and cleanup. Image integration fixtures verify paths, not file bytes. No saved live Postman examples or development fixture writes were made. The ephemeral server and disposable database were cleaned up; existing servers were left running.

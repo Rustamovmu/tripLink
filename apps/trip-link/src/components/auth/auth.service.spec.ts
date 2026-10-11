@@ -50,6 +50,35 @@ describe('Current-account authentication', () => {
 		},
 	);
 
+	it.each(Object.values(MemberType))(
+		'looks up the current %s photo for chat without adding JWT claims',
+		async (role) => {
+			const memberImage = 'uploads/member/current.png';
+			exec.mockResolvedValue({
+				_id: id,
+				memberStatus: MemberStatus.ACTIVE,
+				memberType: role,
+				memberNick: 'current-name',
+				memberImage,
+			});
+			const value = await token(role);
+			expect(jwt.decode(value)).not.toHaveProperty('memberImage');
+			expect(await service.verifyToken(value, true)).toMatchObject({ memberImage });
+			expect(select).toHaveBeenCalledWith('_id memberStatus memberType memberNick memberImage');
+			expect(findById).toHaveBeenCalledTimes(1);
+			const stale = await jwt.signAsync({
+				sub: id.toHexString(),
+				memberType: role,
+				memberImage: 'uploads/member/spoof.png',
+			});
+			expect(await service.verifyToken(stale, true)).toMatchObject({ memberImage });
+		},
+	);
+
+	it('returns an empty chat image when the account has no photo', async () => {
+		expect(await service.verifyToken(await token(), true)).toMatchObject({ memberImage: '' });
+	});
+
 	it.each(['not-a-token', 'a.b.c'])('rejects malformed token %s before querying MongoDB', async (value) => {
 		await expect(service.verifyToken(value)).rejects.toBeInstanceOf(UnauthorizedException);
 		expect(findById).not.toHaveBeenCalled();
