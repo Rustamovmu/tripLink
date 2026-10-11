@@ -85,7 +85,13 @@ describe('SocketGateway authentication and command boundaries', () => {
 		const frames = JSON.stringify(client.frames);
 		for (const forbidden of ['private-token', '"iat"', '"exp"', 'memberPassword', 'memberEmail'])
 			expect(frames).not.toContain(forbidden);
-		expect(client.frames.map((frame) => frame.event)).toEqual(['authenticated', 'getMessages', 'info', 'message']);
+		expect(client.frames.map((frame) => frame.event)).toEqual([
+			'authenticated',
+			'getMessages',
+			'info',
+			'presence',
+			'message',
+		]);
 	});
 
 	it('reports malformed JSON, binary, unknown events and invalid text without changing history', async () => {
@@ -180,5 +186,48 @@ describe('SocketGateway authentication and command boundaries', () => {
 		expect(recipient.frames.some((frame) => frame.event === 'message')).toBe(false);
 		expect(recipient.close).toHaveBeenCalledWith(1008, 'FORBIDDEN');
 		expect(sender.frames.some((frame) => frame.event === 'message')).toBe(true);
+	});
+	it('authenticates typing, rejects forged identities, throttles refreshes and expires indicators', async () => {
+		jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+		const client = connect();
+		await authenticate(client);
+		send(client, 'typing', { isTyping: true, memberId: 'spoof' });
+		await settle();
+		expect(client.frames.at(-1)?.data.code).toBe('BAD_REQUEST');
+		send(client, 'typing', { isTyping: true });
+		await settle();
+		expect(client.frames.at(-1)).toEqual({
+			event: 'typing',
+			data: {
+				memberData: { _id: payload.sub, memberNick: payload.memberNick, memberType: payload.memberType },
+				isTyping: true,
+			},
+		});
+		const count = client.frames.filter((frame) => frame.event === 'typing').length;
+		send(client, 'typing', { isTyping: true });
+		await settle();
+		expect(client.frames.filter((frame) => frame.event === 'typing')).toHaveLength(count);
+		await jest.advanceTimersByTimeAsync(5000);
+		await settle();
+		expect(client.frames.at(-1)?.data.isTyping).toBe(false);
+	});
+
+	it('keeps another tab present and typing when one tab leaves', async () => {
+		const first = connect();
+		const second = connect();
+		await authenticate(first);
+		await authenticate(second);
+		expect(second.frames.find((frame) => frame.event === 'presence')?.data).toEqual({
+			list: [{ _id: payload.sub, memberNick: payload.memberNick, memberType: payload.memberType }],
+			totalMembers: 1,
+			totalClients: 2,
+		});
+		send(second, 'typing', { isTyping: true });
+		await settle();
+		first.readyState = WebSocket.CLOSED;
+		gateway.handleDisconnect(first as unknown as WebSocket);
+		await settle();
+		expect(second.frames.filter((frame) => frame.event === 'presence').at(-1)?.data.totalClients).toBe(1);
+		expect(second.frames.at(-1)?.data.isTyping).toBe(true);
 	});
 });

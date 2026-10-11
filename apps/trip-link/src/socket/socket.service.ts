@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
+import { CHAT_HISTORY_LIMIT, CHAT_TYPING_EXPIRE_MS, CHAT_TYPING_THROTTLE_MS } from './socket.types';
 import type { ChatClient, ChatMember, ChatMessage, SocketSession } from './socket.types';
 
 @Injectable()
@@ -21,6 +22,7 @@ export class SocketService {
 	public detach(client: WebSocket): ChatMember | undefined {
 		const session = this.sessions.get(client);
 		if (session?.authTimer) clearTimeout(session.authTimer);
+		if (session?.typingTimer) clearTimeout(session.typingTimer);
 		this.sessions.delete(client);
 		return session?.member;
 	}
@@ -35,6 +37,32 @@ export class SocketService {
 		return this.authenticatedClients().length;
 	}
 
+	public presence() {
+		const clients = this.authenticatedClients();
+		const list = [...new Map(clients.map(([, session]) => [session.member!._id, { ...session.member! }])).values()];
+		list.sort((a, b) => a.memberNick.localeCompare(b.memberNick) || a._id.localeCompare(b._id));
+		return { list, totalMembers: list.length, totalClients: clients.length };
+	}
+
+	public isTyping(memberId: string, now = Date.now()): boolean {
+		return this.authenticatedClients().some(
+			([, session]) => session.member!._id === memberId && (session.typingUntil ?? 0) > now,
+		);
+	}
+
+	public setTyping(client: WebSocket, isTyping: boolean, now = Date.now()): boolean {
+		const session = this.sessions.get(client);
+		if (!session?.member) return false;
+		if (isTyping && session.lastTypingAt !== undefined && now - session.lastTypingAt < CHAT_TYPING_THROTTLE_MS)
+			return false;
+		if (!isTyping && !session.typingUntil) return false;
+		if (session.typingTimer) clearTimeout(session.typingTimer);
+		session.typingTimer = undefined;
+		session.typingUntil = isTyping ? now + CHAT_TYPING_EXPIRE_MS : undefined;
+		if (isTyping) session.lastTypingAt = now;
+		return true;
+	}
+
 	public addMessage(text: string, member: ChatMember): ChatMessage {
 		const message: ChatMessage = {
 			_id: randomUUID(),
@@ -43,7 +71,7 @@ export class SocketService {
 			memberData: { ...member },
 		};
 		this.messages.push(message);
-		if (this.messages.length > 5) this.messages.splice(0, this.messages.length - 5);
+		if (this.messages.length > CHAT_HISTORY_LIMIT) this.messages.splice(0, this.messages.length - CHAT_HISTORY_LIMIT);
 		return { ...message, memberData: { ...message.memberData } };
 	}
 

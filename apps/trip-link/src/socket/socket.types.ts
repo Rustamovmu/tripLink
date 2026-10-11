@@ -4,6 +4,9 @@ import type { MemberType } from '../libs/enums/member.enum';
 export const CHAT_AUTH_TIMEOUT_MS = 10000;
 export const CHAT_MAX_PAYLOAD_BYTES = 8192;
 export const CHAT_MAX_QUEUED_COMMANDS = 20;
+export const CHAT_HISTORY_LIMIT = 50;
+export const CHAT_TYPING_THROTTLE_MS = 2000;
+export const CHAT_TYPING_EXPIRE_MS = 5000;
 
 export interface ChatMember {
 	_id: string;
@@ -23,6 +26,9 @@ export interface SocketSession {
 	member?: ChatMember;
 	authTimer?: ReturnType<typeof setTimeout>;
 	pending: number;
+	typingUntil?: number;
+	lastTypingAt?: number;
+	typingTimer?: ReturnType<typeof setTimeout>;
 }
 
 export type ChatErrorCode =
@@ -30,6 +36,8 @@ export type ChatErrorCode =
 
 export type ChatResponse =
 	| { event: 'authenticated'; data: { memberData: ChatMember; totalClients: number } }
+	| { event: 'presence'; data: { list: ChatMember[]; totalMembers: number; totalClients: number } }
+	| { event: 'typing'; data: { memberData: ChatMember; isTyping: boolean } }
 	| { event: 'message'; data: ChatMessage }
 	| { event: 'getMessages'; data: { list: ChatMessage[] } }
 	| { event: 'info'; data: { action: 'joined' | 'left'; memberData: ChatMember; totalClients: number } }

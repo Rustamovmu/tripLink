@@ -128,19 +128,20 @@ describe('Authenticated shared group chat (real WebSocket e2e)', () => {
 		}
 	});
 
-	it('retains the last five messages in stable broadcast order and returns them on reconnect', async () => {
+	it('retains the last 50 messages in stable broadcast order and returns them on reconnect', async () => {
 		const a = await connect(user.token);
 		const b = await connect(agent.token);
-		for (let index = 0; index < 7; index++) (index % 2 === 0 ? a : b).send('message', `history-${index}`);
 		const received: string[] = [];
-		for (let index = 0; index < 7; index++)
-			received.push((await a.next('message', (frame) => frame.data.text.startsWith('history-'))).data.text);
+		for (let index = 0; index < 55; index++) {
+			(index % 2 === 0 ? a : b).send('message', `history-${index}`);
+			received.push((await a.next('message', (frame) => frame.data.text === `history-${index}`)).data.text);
+		}
 		const c = await open();
 		c.send('authenticate', { token: admin.token });
 		await c.next('authenticated');
 		const history = (await c.next('getMessages')).data.list;
-		expect(history.map((message) => message.text)).toEqual(received.slice(-5));
-		expect(history).toHaveLength(5);
+		expect(history.map((message) => message.text)).toEqual(received.slice(-50));
+		expect(history).toHaveLength(50);
 		c.send('getMessages', {});
 		expect((await c.next('getMessages')).data.list).toEqual(history);
 	});
@@ -159,6 +160,29 @@ describe('Authenticated shared group chat (real WebSocket e2e)', () => {
 		a.send('getMessages', {});
 		await a.next('getMessages');
 		expect(anonymous.frames).toEqual([]);
+	});
+
+	it('broadcasts real distinct-member presence and typing across two tabs', async () => {
+		const first = await connect(user.token);
+		const second = await connect(user.token);
+		const other = await connect(agent.token);
+		const presence = await other.next('presence', (frame) => frame.data.totalClients === 3);
+		expect(presence.data.totalMembers).toBe(2);
+		expect(presence.data.list.map((member) => member._id).sort()).toEqual(
+			[user.id.toHexString(), agent.id.toHexString()].sort(),
+		);
+		first.send('typing', { isTyping: true });
+		await other.next('typing', (frame) => frame.data.memberData._id === user.id.toHexString() && frame.data.isTyping);
+		second.send('typing', { isTyping: true });
+		await other.next('typing', (frame) => frame.data.memberData._id === user.id.toHexString() && frame.data.isTyping);
+		first.socket.close();
+		await first.closed;
+		expect((await other.next('presence', (frame) => frame.data.totalClients === 2)).data.totalMembers).toBe(2);
+		await other.next('typing', (frame) => frame.data.memberData._id === user.id.toHexString() && frame.data.isTyping);
+		second.send('typing', { isTyping: false });
+		await other.next('typing', (frame) => frame.data.memberData._id === user.id.toHexString() && !frame.data.isTyping);
+		other.send('typing', { isTyping: true, memberId: user.id.toHexString() });
+		expect((await other.next('error')).data.code).toBe('BAD_REQUEST');
 	});
 
 	it('rejects missing, malformed and expired tokens and never sends room data to those clients', async () => {

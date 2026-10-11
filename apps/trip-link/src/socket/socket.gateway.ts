@@ -9,7 +9,12 @@ import { OnGatewayConnection, OnGatewayDisconnect, WebSocketGateway } from '@nes
 import WebSocket, { type RawData } from 'ws';
 import { AuthService } from '../components/auth/auth.service';
 import { SocketService } from './socket.service';
-import { CHAT_AUTH_TIMEOUT_MS, CHAT_MAX_PAYLOAD_BYTES, CHAT_MAX_QUEUED_COMMANDS } from './socket.types';
+import {
+	CHAT_AUTH_TIMEOUT_MS,
+	CHAT_MAX_PAYLOAD_BYTES,
+	CHAT_MAX_QUEUED_COMMANDS,
+	CHAT_TYPING_EXPIRE_MS,
+} from './socket.types';
 import type { ChatClient, ChatErrorCode, ChatMember, ChatResponse, SocketSession } from './socket.types';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -117,10 +122,14 @@ export class SocketGateway implements OnGatewayConnection<WebSocket>, OnGatewayD
 				data: { memberData: session.member, totalClients: this.chat.totalClients() },
 			});
 			this.send(client, { event: 'getMessages', data: { list: this.chat.history() } });
+			for (const typingMember of this.chat.presence().list)
+				if (this.chat.isTyping(typingMember._id))
+					this.send(client, { event: 'typing', data: { memberData: typingMember, isTyping: true } });
 			this.broadcast(recipients, {
 				event: 'info',
 				data: { action: 'joined', memberData: session.member, totalClients: this.chat.totalClients() },
 			});
+			this.broadcast(recipients, { event: 'presence', data: this.chat.presence() });
 			return;
 		}
 		if (!session.member || !session.token) throw new UnauthorizedException();
@@ -130,6 +139,38 @@ export class SocketGateway implements OnGatewayConnection<WebSocket>, OnGatewayD
 			this.send(client, { event: 'getMessages', data: { list: this.chat.history() } });
 			return;
 		}
+		if (command.event === 'typing') {
+			if (
+				!isRecord(command.data) ||
+				typeof command.data.isTyping !== 'boolean' ||
+				Object.keys(command.data).some((key) => key !== 'isTyping')
+			)
+				throw new BadRequestException('typing requires isTyping boolean');
+			// Ignore refresh floods before revalidating the entire room; sender validation still occurs above.
+			if (!this.chat.setTyping(client, command.data.isTyping)) return;
+			const deadline = session.typingUntil;
+			const recipients = await this.validRecipients();
+			if (!this.current(client, session)) return;
+			this.broadcastTyping(recipients, session.member);
+			if (command.data.isTyping) {
+				session.typingTimer = setTimeout(
+					() => {
+						this.enqueue(async () => {
+							if (
+								!this.current(client, session) ||
+								session.typingUntil !== deadline ||
+								!this.chat.setTyping(client, false)
+							)
+								return;
+							const valid = await this.validRecipients();
+							this.broadcastTyping(valid, session.member!);
+						});
+					},
+					Math.max(0, (deadline ?? Date.now() + CHAT_TYPING_EXPIRE_MS) - Date.now()),
+				);
+			}
+			return;
+		}
 		if (command.event !== 'message') throw new BadRequestException('Unknown event');
 		if (typeof command.data !== 'string' || command.data.trim().length < 1 || command.data.trim().length > 1000)
 			throw new BadRequestException('Message must contain 1–1000 characters');
@@ -137,6 +178,7 @@ export class SocketGateway implements OnGatewayConnection<WebSocket>, OnGatewayD
 		if (!this.current(client, session)) return;
 		const message = this.chat.addMessage(command.data.trim(), session.member);
 		this.broadcast(recipients, { event: 'message', data: message });
+		if (this.chat.setTyping(client, false)) this.broadcastTyping(recipients, session.member);
 	}
 
 	private async verify(token: string): Promise<ChatMember> {
@@ -155,6 +197,13 @@ export class SocketGateway implements OnGatewayConnection<WebSocket>, OnGatewayD
 			}
 		}
 		return valid;
+	}
+
+	private broadcastTyping(recipients: ChatClient[], member: ChatMember): void {
+		this.broadcast(recipients, {
+			event: 'typing',
+			data: { memberData: member, isTyping: this.chat.isTyping(member._id) },
+		});
 	}
 
 	private current(client: WebSocket, session: SocketSession): boolean {
@@ -202,6 +251,8 @@ export class SocketGateway implements OnGatewayConnection<WebSocket>, OnGatewayD
 				event: 'info',
 				data: { action: 'left', memberData: member, totalClients: this.chat.totalClients() },
 			});
+			this.broadcast(recipients, { event: 'presence', data: this.chat.presence() });
+			this.broadcastTyping(recipients, member);
 		});
 	}
 
