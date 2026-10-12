@@ -1,5 +1,38 @@
 # TripLink completed tasks
 
+## Gemini AI assistant integration — 2026-10-13
+
+Implemented the separately approved AI assistant in the existing frontend/backend architecture after inspecting TripLink and Nestar module/auth/chat/tour references. Nestar has no AI feature equivalent. Kept Apollo/GraphQL, current-account authentication, the existing shared room, and all existing dependency versions.
+
+### Behavior and impacts
+
+- Added authenticated aiChat for ACTIVE USER/AGENT/ADMIN, with validated 1–1000-character input, at most five prior user/assistant turns, and current public tour grounding through exported TourService. Default replies request 1–3 sentences/200 tokens; explicit detail permits 600. One official @google/genai 2.28.0 request attempt, minimal thinking, no automatic retries, and a 20-second provider timeout.
+- GEMINI_API_KEY is backend-only; GEMINI_MODEL defaults to gemini-3.5-flash-lite. Missing key/provider failures expose safe AI_UNAVAILABLE or AI_RATE_LIMITED codes.
+- New MongoDB ai_usage collection holds only TTL quota counters and ownership-tagged 60-second request leases: per member 6/minute, 60/day and one in flight; global 60/minute and 1000/day. Quotas are shared across application processes and fail closed.
+- No existing tour/member/booking schema, role or lifecycle change. Public sources include exact effective prices and trusted detail IDs. No AI booking/payment/cancellation writes or personal booking data. Catalogue context is partial and bounded; translated keyword retrieval has documented limits.
+- Added a separate glass AI panel beside Shared chat using existing MUI/SCSS. Welcome, quick actions, plain-text bubbles, sources, loading/manual retry, synchronous submission locking, clear, session memory across routes, logout/token cleanup, IME-safe Enter, auto-scroll, mobile viewport/focus handling and reduced-motion support. Desktop rooms remain independently accessible.
+- Backend SDK was installed with isolated Yarn resolution and nested dependencies. Comparing the original and new package-lock entries found zero existing packages changed and 41 added SDK/tree entries. No frontend dependency or framework upgrade.
+- Exact created/modified file manifest, configuration, API contract, Postman operation/Variables/role prerequisites and success/rejection/cleanup recipes are in [the AI guide](ai-assistant.md#files).
+
+### Validation and cleanup
+
+- Frontend non-writing yarn typecheck and focused non-fixing lint: passed, zero lint warnings/errors.
+- All 79 frontend tests passed, including five AI tests and seven existing chat tests.
+- Backend non-writing typecheck and focused non-fixing AI/module lint: passed, zero warnings/errors.
+- 23 focused AI unit tests passed.
+- Eight real AI HTTP/MongoDB tests (mocked Gemini) and 19 existing real WebSocket tests passed, 27 total. Fixtures verified their uniquely named disposable database before cleanup; databases, applications and WebSocket clients were cleaned up.
+- Frontend contract check: 63 GraphQL documents and 15 existing variable fixtures, zero errors; AI Variables additionally exercised by DTO/HTTP tests. Both repository diff checks passed.
+- Chrome: isolated frontend on 3011 and disposable backend on 3088; AI response with real fixture tour/source facts, shared-room echo while both panels open, adjacent launchers, and 390px mobile panel. Gemini was mocked. Desktop/mobile screenshot review returned ship with no material fixes; incumbent visual-system documentation was preserved.
+- Task-owned preview browser tab closed; both temporary servers stopped and ports confirmed closed. The exact preview database was verified and dropped. Existing servers on 3000/3007 remained untouched. No development records, counters, credentials or uploads changed. No Git commits or saved Postman examples.
+- Initial sandboxed MongoDB DNS failed; the same integration command passed with approved network access. Preview displayed an existing homepage date-picker hydration warning and shared-chat focus warning while changing emulated devices. Unrelated fixture homepage data was deliberately incomplete.
+- The Impeccable detector binary was unavailable, so final review used screenshots/source. No new visual identity or design documentation files were created.
+
+### Limits and next task
+
+GEMINI_API_KEY is absent in the backend environment; no real Gemini generation, language-quality/latency evaluation, production deployment or load test was performed. This is focused integration acceptance, not a new whole-backend acceptance pass. Add the key locally and restart the backend before live use. Next backend task: a small live Gemini acceptance pass using disposable fixtures, with explicitly recorded provider responses and token usage.
+
+
+
 ## Shareable tour search URLs — 2026-10-10
 
 Implemented Nestar-style `/tour?input=<URL-encoded JSON>` in the existing frontend. Inspected Nestar's property page/filter/homepage navigation and backend property resolver, and TripLink's tour resolver, frontend types, inquiry DTOs and service filters. The frontend now restores applied filters, sorting, page and limit from the URL after router readiness. Search resets pagination to page 1; pagination preserves the complete inquiry; Reset clears filters while retaining the locale. Existing readable-parameter links and the unchanged property-route compatibility mapping remain supported. JSON input takes precedence over readable parameters.
