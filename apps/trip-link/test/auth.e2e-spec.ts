@@ -321,17 +321,17 @@ describe('Current-account authorization (e2e)', () => {
 					memberNick: nick,
 					memberEmail: `${nick}@example.com`,
 					memberPassword: password,
-					memberType: role === MemberType.ADMIN ? MemberType.USER : role,
+					memberType: MemberType.USER,
 				},
 			},
 		);
 		expect(result.errors).toBeUndefined();
 		const actor = { id: result.data!.signup.member._id, nick, token: result.data!.signup.accessToken };
-		if (role === MemberType.ADMIN) {
+		if (role !== MemberType.USER) {
 			// Bootstrap only this isolated database; public signup still cannot create admins.
 			await connection
 				.collection('members')
-				.updateOne({ _id: new Types.ObjectId(actor.id) }, { $set: { memberType: MemberType.ADMIN } });
+				.updateOne({ _id: new Types.ObjectId(actor.id) }, { $set: { memberType: role } });
 			actor.token = await login(nick);
 		}
 		return actor;

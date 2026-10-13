@@ -16,7 +16,10 @@ describe('Current-account authentication', () => {
 	let findById: jest.Mock;
 
 	beforeEach(() => {
-		jwt = new JwtService({ secret: 'unit-test-secret', signOptions: { expiresIn: '30d' } });
+		jwt = new JwtService({
+			secret: 'unit-test-secret',
+			signOptions: { expiresIn: '30d', issuer: 'triplink', audience: 'triplink-api' },
+		});
 		exec = jest.fn();
 		exec.mockResolvedValue({
 			_id: id,
@@ -27,6 +30,8 @@ describe('Current-account authentication', () => {
 		select = jest.fn().mockReturnValue({ lean: jest.fn().mockReturnValue({ exec }) });
 		findById = jest.fn().mockReturnValue({ select });
 		const tokens = new TokenService(jwt, {
+			issuer: 'triplink',
+			audience: 'triplink-api',
 			accessSecret: 'unit-test-secret',
 			refreshSecret: 'different-unit-test-secret',
 			accessSeconds: 900,
@@ -64,7 +69,7 @@ describe('Current-account authentication', () => {
 			});
 			expect(findById).toHaveBeenCalledTimes(1);
 			expect(findById).toHaveBeenCalledWith(id.toHexString());
-			expect(select).toHaveBeenCalledWith('_id memberStatus memberType memberNick');
+			expect(select).toHaveBeenCalledWith('_id memberStatus memberType memberNick +authVersion');
 		},
 	);
 
@@ -82,7 +87,7 @@ describe('Current-account authentication', () => {
 			const value = await token(role);
 			expect(jwt.decode(value)).not.toHaveProperty('memberImage');
 			expect(await service.verifyToken(value, true)).toMatchObject({ memberImage });
-			expect(select).toHaveBeenCalledWith('_id memberStatus memberType memberNick memberImage');
+			expect(select).toHaveBeenCalledWith('_id memberStatus memberType memberNick +authVersion memberImage');
 			expect(findById).toHaveBeenCalledTimes(1);
 			const stale = await jwt.signAsync({
 				sub: id.toHexString(),

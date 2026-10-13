@@ -20,7 +20,17 @@ describe('Session token contracts', () => {
 		const claims = await tokens.verifyAccess(token);
 		expect(claims.exp! - claims.iat!).toBe(900);
 		expect(claims).toMatchObject({ sub: String(member._id), sid, type: 'access', memberType: 'USER' });
-		expect(Object.keys(claims).sort()).toEqual(['exp', 'iat', 'memberNick', 'memberType', 'sid', 'sub', 'type']);
+		expect(Object.keys(claims).sort()).toEqual([
+			'aud',
+			'exp',
+			'iat',
+			'iss',
+			'memberNick',
+			'memberType',
+			'sid',
+			'sub',
+			'type',
+		]);
 	});
 	it('sets refresh expiration exactly and does not interchange token types', async () => {
 		const now = Math.floor(Date.now() / 1000);

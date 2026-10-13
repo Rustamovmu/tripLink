@@ -20,6 +20,7 @@ import { ReviewStatus } from '../../libs/enums/review.enum';
 import { TourStatus } from '../../libs/enums/tour.enum';
 import { SessionMetadata } from '../auth/auth-session.service';
 import { AuthService } from '../auth/auth.service';
+import { normalizeUsername, validateNewPassword, usernameCollation } from '../auth/account-policy';
 import { LikeService, LikeToggleInput } from '../like/like.service';
 
 type MemberRecord = Member & {
@@ -28,6 +29,7 @@ type MemberRecord = Member & {
 	memberPhone?: string;
 	memberAddress?: string;
 	memberPassword: string;
+	authVersion?: number;
 };
 
 type FollowRecord = {
@@ -96,11 +98,13 @@ export class MemberService {
 	): Promise<AuthPayload & { refreshToken: string; refreshExpiresAt: Date }> {
 		const memberEmail = input.memberEmail?.trim().toLowerCase();
 		const memberPhone = input.memberPhone?.trim();
-		const memberAuthType = input.memberAuthType ?? (memberEmail ? MemberAuthType.EMAIL : MemberAuthType.PHONE);
+		const memberAuthType = input.memberAuthType ?? MemberAuthType.EMAIL;
 		const memberType = input.memberType ?? MemberType.USER;
 
-		this.validateSignupContact(memberAuthType, memberEmail, memberPhone);
-		if (memberType !== MemberType.USER && memberType !== MemberType.AGENT) {
+		this.validateSignupContact(memberAuthType);
+		const memberNick = normalizeUsername(input.memberNick);
+		validateNewPassword(input.memberPassword);
+		if (memberType !== MemberType.USER) {
 			throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
 		}
 
@@ -109,7 +113,7 @@ export class MemberService {
 		try {
 			const createdMember = await this.memberModel.create({
 				...input,
-				memberNick: input.memberNick.trim(),
+				memberNick,
 				memberEmail,
 				memberPhone,
 				memberAuthType,
@@ -122,6 +126,7 @@ export class MemberService {
 					_id: this.toObjectIdString(createdMember._id),
 					memberType: createdMember.memberType,
 					memberNick: createdMember.memberNick,
+					authVersion: createdMember.authVersion ?? 0,
 				},
 				metadata,
 			);
@@ -147,20 +152,29 @@ export class MemberService {
 		metadata: SessionMetadata = {},
 	): Promise<AuthPayload & { refreshToken: string; refreshExpiresAt: Date }> {
 		const member = await this.memberModel
-			.findOne({ memberNick: input.memberNick.trim() })
-			.select('+memberPassword')
+			.findOne(
+				input.memberNick.includes('@')
+					? { memberEmail: input.memberNick.trim().toLowerCase() }
+					: { memberNick: input.memberNick.trim() },
+			)
+			.collation(usernameCollation)
+			.select('+memberPassword +authVersion')
 			.exec();
 
 		if (!member || member.memberStatus === MemberStatus.DELETE || !member.memberPassword) {
+			await this.authService.verifyAbsentCredential(input.memberPassword);
 			throw new UnauthorizedException(Message.INVALID_CREDENTIALS);
-		}
-
-		if (member.memberStatus !== MemberStatus.ACTIVE) {
-			throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
 		}
 
 		const passwordMatches = await this.authService.comparePasswords(input.memberPassword, member.memberPassword);
 		if (!passwordMatches) throw new UnauthorizedException(Message.INVALID_CREDENTIALS);
+		if (member.memberStatus !== MemberStatus.ACTIVE) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
+		if (member.memberPassword.startsWith('$2')) {
+			const upgraded = await this.authService.hashPassword(input.memberPassword);
+			await this.memberModel
+				.updateOne({ _id: member._id, memberPassword: member.memberPassword }, { $set: { memberPassword: upgraded } })
+				.exec();
+		}
 
 		await this.memberModel
 			.updateOne({ _id: member._id }, { $set: { lastLoginAt: new Date() } }, { timestamps: false })
@@ -171,6 +185,7 @@ export class MemberService {
 				_id: this.toObjectIdString(member._id),
 				memberType: member.memberType,
 				memberNick: member.memberNick,
+				authVersion: member.authVersion ?? 0,
 			},
 			metadata,
 		);
@@ -185,7 +200,7 @@ export class MemberService {
 		const { passwordChange } = input;
 		const update: MemberUpdateFields = {};
 
-		if (input.memberNick !== undefined) update.memberNick = input.memberNick.trim();
+		if (input.memberNick !== undefined) update.memberNick = await this.updatedNick(memberId, input.memberNick);
 		if (input.memberFullname !== undefined) update.memberFullname = input.memberFullname.trim();
 		if (input.memberImage !== undefined) update.memberImage = input.memberImage.trim();
 		if (input.memberCountry !== undefined) update.memberCountry = input.memberCountry.trim();
@@ -198,7 +213,7 @@ export class MemberService {
 		if (passwordChange) {
 			const member = await this.memberModel
 				.findOne({ _id: memberId, memberStatus: MemberStatus.ACTIVE })
-				.select('+memberPassword')
+				.select('+memberPassword +authVersion')
 				.exec();
 
 			if (!member) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
@@ -217,6 +232,7 @@ export class MemberService {
 			);
 			if (reusesCurrentPassword) throw new BadRequestException(Message.NEW_PASSWORD_MUST_DIFFER);
 
+			validateNewPassword(passwordChange.newPassword);
 			update.memberPassword = await this.authService.hashPassword(passwordChange.newPassword);
 		}
 
@@ -227,7 +243,12 @@ export class MemberService {
 			if (currentPasswordHash) search.memberPassword = currentPasswordHash;
 
 			const updatedMember = await this.memberModel
-				.findOneAndUpdate(search, { $set: update }, { new: true, runValidators: true })
+				.findOneAndUpdate(
+					search,
+					{ $set: update, ...(passwordChange ? { $inc: { authVersion: 1 } } : {}) },
+					{ new: true, runValidators: true },
+				)
+				.select('+authVersion')
 				.exec();
 
 			if (!updatedMember) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
@@ -240,7 +261,10 @@ export class MemberService {
 				},
 				sid,
 			);
-			if (passwordChange) await this.authService.revokeOtherSessions(memberId, sid);
+			if (passwordChange) {
+				await this.authService.retainSessionVersion(sid, memberId, updatedMember.authVersion ?? 0);
+				await this.authService.revokeOtherSessions(memberId, sid);
+			}
 
 			return {
 				accessToken,
@@ -633,7 +657,7 @@ export class MemberService {
 		const update: MemberAdminUpdateFields = {};
 		if (input.memberType !== undefined) update.memberType = input.memberType;
 		if (input.memberStatus !== undefined) update.memberStatus = input.memberStatus;
-		if (input.memberNick !== undefined) update.memberNick = input.memberNick.trim();
+		if (input.memberNick !== undefined) update.memberNick = await this.updatedNick(input.memberId, input.memberNick);
 		if (input.memberFullname !== undefined) update.memberFullname = input.memberFullname.trim();
 		if (input.memberImage !== undefined) update.memberImage = input.memberImage.trim();
 		if (input.memberCountry !== undefined) update.memberCountry = input.memberCountry.trim();
@@ -742,13 +766,14 @@ export class MemberService {
 		}
 	}
 
-	private validateSignupContact(authType: MemberAuthType, email?: string, phone?: string): void {
+	private async updatedNick(memberId: string, value: string) {
+		const current = await this.memberModel.findById(memberId).select('memberNick').lean().exec();
+		return current?.memberNick === value ? value : normalizeUsername(value);
+	}
+
+	private validateSignupContact(authType: MemberAuthType): void {
 		if (authType === MemberAuthType.TELEGRAM) {
 			throw new BadRequestException(Message.UNSUPPORTED_AUTH_TYPE);
-		}
-
-		if ((authType === MemberAuthType.EMAIL && !email) || (authType === MemberAuthType.PHONE && !phone)) {
-			throw new BadRequestException(Message.INVALID_AUTH_CONTACT);
 		}
 	}
 

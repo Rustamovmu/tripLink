@@ -338,12 +338,20 @@ describe('Follow GraphQL API (e2e)', () => {
 					memberNick,
 					memberEmail,
 					memberPassword: 'TestPass123!',
-					memberType,
+					memberType: MemberType.USER,
 				},
 			},
 		);
 		if (!response.data?.signup) throw new Error(response.errors?.[0].message ?? 'Signup failed');
-		return response.data.signup;
+		const payload = response.data.signup;
+		if (memberType !== MemberType.USER) {
+			await connection
+				.collection('members')
+				.updateOne({ _id: new Types.ObjectId(payload.member._id) }, { $set: { memberType } });
+			payload.member.memberType = memberType;
+			payload.accessToken = await app.get(AuthService).createToken({ _id: payload.member._id, memberNick, memberType });
+		}
+		return payload;
 	}
 
 	async function graphqlRequest<T>(

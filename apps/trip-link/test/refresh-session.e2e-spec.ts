@@ -94,13 +94,13 @@ describe('Rotating refresh sessions (real HTTP and MongoDB)', () => {
 						memberNick,
 						memberPassword: 'TestPass123!',
 						memberEmail: memberNick + '@example.com',
-						memberType: role === MemberType.ADMIN ? 'USER' : role,
+						memberType: 'USER',
 					},
 				},
 			});
 		expect(body(response).errors).toBeUndefined();
 		const id = String(body(response).data!.signup!.member._id);
-		if (role === MemberType.ADMIN) {
+		if (role !== MemberType.USER) {
 			await connection.collection('members').updateOne({ _id: new Types.ObjectId(id) }, { $set: { memberType: role } });
 			response = await client
 				.post('/graphql')
@@ -152,7 +152,8 @@ describe('Rotating refresh sessions (real HTTP and MongoDB)', () => {
 		const before = await connection
 			.collection<RefreshSession>('refreshSessions')
 			.findOne({ _id: new Types.ObjectId(a.sid) });
-		const mocked = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 86400000);
+		// Anchor the controlled clock to session issuance, excluding network/test elapsed time.
+		const mocked = jest.spyOn(Date, 'now').mockReturnValue(before!.expiresAt.getTime() - 6 * 86400000);
 		try {
 			const response = await refresh(a);
 			expect(response.status).toBe(201);

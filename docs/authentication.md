@@ -219,3 +219,8 @@ node -r dotenv/config ./node_modules/jest/bin/jest.js --config ./apps/batch/test
 ```
 
 Integration suites require the configured private MongoDB connection and create/drop only their verified dedicated databases. Do not run them with NODE_ENV=production. Temporary task evidence: `/private/tmp/triplink-auth-unit-final.log`, `triplink-auth-full-api-final.log`, `triplink-auth-batch.log`, `triplink-auth-frontend-final.log`, `triplink-auth-contracts-final.log`, and `/private/tmp/triplink-auth-captures/final-report.json`. These local artifacts are not permanent repository fixtures. The final browser report records seven passing checks and no page errors. Final fixture audit is `/private/tmp/triplink-auth-orphan-audit-final.json`; task-owned backend/browser processes were closed, leaving the user's existing servers running.
+
+
+## Unified account security update — 2026-10-13
+
+[Account security implementation and deployment guide](account-security.md) supersedes earlier signup/password-policy details: new public accounts are USER-only, phone/email are optional, new passwords use Argon2id, bcrypt verification is retained, and explicit Google/Telegram/Kakao identity linking plus recovery are available behind configuration. Existing GraphQL contracts, session rotation and authorization remain. Real providers/SMTP and production acceptance are pending the documented setup and dependency remediation.

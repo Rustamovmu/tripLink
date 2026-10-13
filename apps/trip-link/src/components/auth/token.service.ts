@@ -39,12 +39,23 @@ export class TokenService {
 				memberType: member.memberType,
 				memberNick: member.memberNick,
 			},
-			{ secret: this.config.accessSecret, algorithm: 'HS256', expiresIn: this.config.accessSeconds },
+			{
+				secret: this.config.accessSecret,
+				algorithm: 'HS256',
+				expiresIn: this.config.accessSeconds,
+				issuer: this.config.issuer,
+				audience: this.config.audience,
+			},
 		);
 	}
 	refresh(sub: string, sid: string, issuedAt: number, expiresAt: number, jti: string = randomUUID()) {
 		const claims: RefreshClaims = { sub, sid, type: 'refresh', jti, iat: issuedAt, exp: expiresAt };
-		return this.jwt.signAsync(claims, { secret: this.config.refreshSecret, algorithm: 'HS256' });
+		return this.jwt.signAsync(claims, {
+			secret: this.config.refreshSecret,
+			algorithm: 'HS256',
+			issuer: this.config.issuer,
+			audience: this.config.audience,
+		});
 	}
 	async verifyAccess(token: string): Promise<AccessClaims> {
 		let claims: AccessClaims;
@@ -52,6 +63,8 @@ export class TokenService {
 			claims = await this.jwt.verifyAsync<AccessClaims>(token, {
 				secret: this.config.accessSecret,
 				algorithms: ['HS256'],
+				issuer: this.config.issuer,
+				audience: this.config.audience,
 			});
 		} catch (error: unknown) {
 			throw authFailure(
@@ -75,6 +88,8 @@ export class TokenService {
 			claims = await this.jwt.verifyAsync<RefreshClaims>(token, {
 				secret: this.config.refreshSecret,
 				algorithms: ['HS256'],
+				issuer: this.config.issuer,
+				audience: this.config.audience,
 			});
 		} catch (error: unknown) {
 			throw authFailure(

@@ -214,10 +214,13 @@ describe('Public agent reviews (e2e)', () => {
 	async function signup(memberNick: string, memberEmail: string, memberType: string): Promise<string> {
 		const response = await graphqlRequest<{ signup: { member: { _id: string } } }>(
 			`mutation Signup($input: MemberInput!) { signup(input: $input) { member { _id } } }`,
-			{ input: { memberNick, memberEmail, memberPassword: 'TestPass123!', memberType } },
+			{ input: { memberNick, memberEmail, memberPassword: 'TestPass123!', memberType: 'USER' } },
 		);
 		if (!response.data?.signup) throw new Error(response.errors?.[0].message ?? 'Signup failed');
-		return response.data.signup.member._id;
+		const id = response.data.signup.member._id;
+		if (memberType !== 'USER')
+			await connection.collection('members').updateOne({ _id: new Types.ObjectId(id) }, { $set: { memberType } });
+		return id;
 	}
 
 	async function graphqlRequest<T>(query: string, variables: Record<string, unknown>): Promise<GraphQLResponse<T>> {

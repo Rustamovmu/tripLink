@@ -1,3 +1,12 @@
+import { AuthRecordsService } from './auth-records.service';
+import { OidcProviderService } from './oidc-provider.service';
+import { AccountSecurityService } from './account-security.service';
+import { SocialAuthService } from './social-auth.service';
+import { AccountSecurityController } from './account-security.controller';
+import AuthIdentitySchema from '../../schemas/AuthIdentity.model';
+import AuthTransactionSchema from '../../schemas/AuthTransaction.model';
+import AuthSecuritySchema from '../../schemas/AuthSecurity.model';
+import AuthEventSchema from '../../schemas/AuthEvent.model';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -23,6 +32,10 @@ import { AuthController } from './auth.controller';
 			{ name: 'Member', schema: MemberSchema },
 			{ name: 'RefreshSession', schema: RefreshSessionSchema },
 			{ name: 'AuthRateLimit', schema: AuthRateLimitSchema },
+			{ name: 'AuthIdentity', schema: AuthIdentitySchema },
+			{ name: 'AuthTransaction', schema: AuthTransactionSchema },
+			{ name: 'AuthSecurity', schema: AuthSecuritySchema },
+			{ name: 'AuthEvent', schema: AuthEventSchema },
 		]),
 		JwtModule.registerAsync({
 			imports: [ConfigModule],
@@ -33,8 +46,12 @@ import { AuthController } from './auth.controller';
 			}),
 		}),
 	],
-	controllers: [AuthController],
+	controllers: [AuthController, AccountSecurityController],
 	providers: [
+		AuthRecordsService,
+		OidcProviderService,
+		AccountSecurityService,
+		SocialAuthService,
 		AuthConfig,
 		TokenService,
 		AuthSessionService,
@@ -47,6 +64,7 @@ import { AuthController } from './auth.controller';
 		AuthEntryGuard,
 	],
 	exports: [
+		AuthRecordsService,
 		AuthRateLimitService,
 		AuthService,
 		AuthGuard,

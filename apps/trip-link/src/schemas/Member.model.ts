@@ -9,7 +9,7 @@ const MemberSchema = new Schema(
 		memberEmail: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
 		memberPhone: { type: String, unique: true, sparse: true, trim: true },
 		memberNick: { type: String, required: true, unique: true, trim: true },
-		memberPassword: { type: String, required: true, select: false },
+		memberPassword: { type: String, select: false },
 		memberFullname: { type: String, trim: true },
 		memberImage: { type: String, default: '' },
 		memberCountry: { type: String, trim: true },
@@ -29,6 +29,7 @@ const MemberSchema = new Schema(
 		memberComments: { type: Number, default: 0, min: 0 },
 		memberWarnings: { type: Number, default: 0, min: 0 },
 		memberBlocks: { type: Number, default: 0, min: 0 },
+		authVersion: { type: Number, default: 0, select: false },
 		lastLoginAt: { type: Date },
 		deletedAt: { type: Date },
 	},
@@ -37,5 +38,10 @@ const MemberSchema = new Schema(
 
 MemberSchema.index({ memberType: 1, memberStatus: 1, agentRank: -1, _id: -1 });
 MemberSchema.index({ memberType: 1, memberStatus: 1, createdAt: -1 });
+
+MemberSchema.index(
+	{ memberNick: 1 },
+	{ name: 'memberNick_ci_unique', unique: true, collation: { locale: 'en', strength: 2 } },
+);
 
 export default MemberSchema;

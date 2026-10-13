@@ -20,15 +20,17 @@ import { MemberAuthType, MemberStatus, MemberType } from '../../enums/member.enu
 
 @InputType()
 export class MemberInput {
+	@IsOptional() @IsString() @Length(2, 100) @Field(() => String, { nullable: true }) memberFullname?: string;
+
 	@IsString()
 	@IsNotEmpty()
-	@Length(3, 20)
+	@Length(3, 30)
 	@Field(() => String)
 	memberNick!: string;
 
 	@IsString()
 	@IsNotEmpty()
-	@Length(8, 72)
+	@Length(12, 1024)
 	@Field(() => String)
 	memberPassword!: string;
 
@@ -45,7 +47,7 @@ export class MemberInput {
 	memberPhone?: string;
 
 	@IsOptional()
-	@IsIn([MemberType.USER, MemberType.AGENT])
+	@IsIn([MemberType.USER])
 	@Field(() => MemberType, { nullable: true })
 	memberType?: MemberType;
 
@@ -59,13 +61,13 @@ export class MemberInput {
 export class LoginInput {
 	@IsString()
 	@IsNotEmpty()
-	@Length(3, 20)
+	@Length(1, 254)
 	@Field(() => String)
 	memberNick!: string;
 
 	@IsString()
 	@IsNotEmpty()
-	@Length(8, 72)
+	@Length(1, 1024)
 	@Field(() => String)
 	memberPassword!: string;
 }

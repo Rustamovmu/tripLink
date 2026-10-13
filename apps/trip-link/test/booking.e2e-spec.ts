@@ -1370,12 +1370,18 @@ describe('Booking lifecycle and availability (e2e)', () => {
 					memberNick: nick,
 					memberEmail: `${nick}@example.com`,
 					memberPassword: 'TestPass123!',
-					memberType: role,
+					memberType: MemberType.USER,
 				},
 			},
 		);
 		if (!result.data?.signup) throw new Error(result.errors?.[0].message ?? 'Signup failed');
-		return { id: result.data.signup.member._id, token: result.data.signup.accessToken };
+		const id = result.data.signup.member._id;
+		if (role !== MemberType.USER) {
+			// Provision elevated roles only inside this verified disposable fixture database.
+			await connection.collection('members').updateOne({ _id: new Types.ObjectId(id) }, { $set: { memberType: role } });
+			return { id, token: await app.get(AuthService).createToken({ _id: id, memberNick: nick, memberType: role }) };
+		}
+		return { id, token: result.data.signup.accessToken };
 	}
 
 	async function createTour(seats: number, status = 'ACTIVE'): Promise<Fixture> {

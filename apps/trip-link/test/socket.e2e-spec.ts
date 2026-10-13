@@ -216,7 +216,7 @@ describe('Authenticated shared group chat (real WebSocket e2e)', () => {
 				type: 'access',
 				memberType: user.role,
 			},
-			{ expiresIn: -1 },
+			{ expiresIn: -1, issuer: 'triplink', audience: 'triplink-api' },
 		);
 		for (const token of [undefined, 'invalid', expired]) {
 			const client = await open();
@@ -245,7 +245,7 @@ describe('Authenticated shared group chat (real WebSocket e2e)', () => {
 				memberType: user.role,
 				memberNick: user.nick,
 			},
-			{ expiresIn: 2 },
+			{ expiresIn: 2, issuer: 'triplink', audience: 'triplink-api' },
 		);
 		const client = await connect(token);
 		await new Promise<void>((resolve) => setTimeout(resolve, 2200));

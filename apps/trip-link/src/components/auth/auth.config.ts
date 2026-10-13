@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AuthConfig {
+	readonly issuer = 'triplink';
+	readonly audience = 'triplink-api';
 	readonly accessSecret: string;
 	readonly refreshSecret: string;
 	readonly accessSeconds = 900;

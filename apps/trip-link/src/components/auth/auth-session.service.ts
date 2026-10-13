@@ -6,12 +6,18 @@ import { AuthConfig } from './auth.config';
 import { authFailure, TokenService } from './token.service';
 import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { Message } from '../../libs/enums/common.enum';
-export type SessionMember = { _id: string | Types.ObjectId; memberType: MemberType; memberNick: string };
+export type SessionMember = {
+	_id: string | Types.ObjectId;
+	memberType: MemberType;
+	memberNick: string;
+	authVersion?: number;
+};
 export type SessionMetadata = { userAgent?: string };
 export interface RefreshSession {
 	_id: Types.ObjectId;
 	memberId: Types.ObjectId;
 	memberType: MemberType;
+	authVersion: number;
 	tokenHash: string;
 	tokenId: string;
 	tokenFamilyId: string;
@@ -21,6 +27,7 @@ export interface RefreshSession {
 	revokedAt: Date | null;
 	createdAt: Date;
 	lastUsedAt: Date;
+	lastAuthenticatedAt: Date;
 	userAgent: string;
 	deviceName: string;
 	previousTokenHash?: string;
@@ -72,6 +79,7 @@ export class AuthSessionService {
 			_id: id,
 			memberId: member._id,
 			memberType: member.memberType,
+			authVersion: member.authVersion ?? 0,
 			tokenHash: hash(refreshToken),
 			tokenId,
 			tokenFamilyId: randomUUID(),
@@ -79,6 +87,7 @@ export class AuthSessionService {
 			expiresAt,
 			absoluteExpiresAt: new Date((now + this.config.sessionSeconds) * 1000),
 			lastUsedAt: new Date(now * 1000),
+			lastAuthenticatedAt: new Date(now * 1000),
 			userAgent,
 			deviceName,
 		});
@@ -88,10 +97,36 @@ export class AuthSessionService {
 			refreshExpiresAt: expiresAt,
 		};
 	}
+	async retainVersion(sid: string, memberId: string, authVersion: number) {
+		await this.sessions
+			.updateOne({ _id: sid, memberId, revokedAt: null }, { $set: { authVersion, lastAuthenticatedAt: new Date() } })
+			.exec();
+	}
+
+	async assertRecent(sid: string, memberId: string) {
+		await this.assertActive(sid, memberId);
+		const record = await this.sessions
+			.findOne({ _id: sid, memberId })
+			.select('lastAuthenticatedAt createdAt')
+			.lean()
+			.exec();
+		if (!record || (record.lastAuthenticatedAt ?? record.createdAt).getTime() < Date.now() - 5 * 60000)
+			throw new ForbiddenException({
+				message: 'Please confirm your identity again to continue.',
+				authCode: 'REAUTHENTICATION_REQUIRED',
+			});
+	}
+	async markAuthenticated(sid: string, memberId: string) {
+		await this.assertActive(sid, memberId);
+		await this.sessions
+			.updateOne({ _id: sid, memberId, revokedAt: null }, { $set: { lastAuthenticatedAt: new Date() } })
+			.exec();
+	}
+
 	async assertActive(sid: string, memberId: string) {
 		const session = await this.sessions
 			.findOne({ _id: sid, memberId })
-			.select('revokedAt expiresAt absoluteExpiresAt memberType')
+			.select('revokedAt expiresAt absoluteExpiresAt memberType authVersion')
 			.lean<RefreshSession>()
 			.exec();
 		this.check(session);
@@ -112,10 +147,15 @@ export class AuthSessionService {
 		this.check(session);
 		const account = await this.members
 			.findById(claims.sub)
-			.select('_id memberStatus memberType memberNick')
+			.select('_id memberStatus memberType memberNick +authVersion')
 			.lean<Account>()
 			.exec();
-		if (!account || account.memberStatus === MemberStatus.DELETE || account.memberType !== session!.memberType) {
+		if (
+			!account ||
+			account.memberStatus === MemberStatus.DELETE ||
+			account.memberType !== session!.memberType ||
+			(account.authVersion ?? 0) !== (session!.authVersion ?? 0)
+		) {
 			await this.revoke(claims.sid, claims.sub);
 			throw authFailure('SESSION_REVOKED');
 		}

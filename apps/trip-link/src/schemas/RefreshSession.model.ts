@@ -2,6 +2,7 @@ import { Schema } from 'mongoose';
 import { MemberType } from '../libs/enums/member.enum';
 const RefreshSessionSchema = new Schema(
 	{
+		authVersion: { type: Number, default: 0 },
 		memberId: { type: Schema.Types.ObjectId, required: true },
 		memberType: { type: String, enum: MemberType, required: true },
 		tokenHash: { type: String, required: true, select: false },
@@ -12,6 +13,7 @@ const RefreshSessionSchema = new Schema(
 		absoluteExpiresAt: { type: Date, required: true },
 		revokedAt: { type: Date, default: null },
 		lastUsedAt: { type: Date, required: true },
+		lastAuthenticatedAt: { type: Date, default: Date.now },
 		userAgent: { type: String, default: '' },
 		deviceName: { type: String, default: 'Browser' },
 		previousTokenHash: { type: String, select: false },

@@ -19,13 +19,13 @@ import { MemberStatus, MemberType } from '../../enums/member.enum';
 export class PasswordChangeInput {
 	@IsString()
 	@IsNotEmpty()
-	@Length(8, 72)
+	@Length(1, 1024)
 	@Field(() => String)
 	currentPassword!: string;
 
 	@IsString()
 	@IsNotEmpty()
-	@Length(8, 72)
+	@Length(12, 1024)
 	@Field(() => String)
 	newPassword!: string;
 }
@@ -40,7 +40,7 @@ export class MemberUpdate {
 
 	@IsOptional()
 	@IsString()
-	@Length(3, 20)
+	@Length(1, 254)
 	@Field(() => String, { nullable: true })
 	memberNick?: string;
 
@@ -95,7 +95,7 @@ export class MemberAdminUpdate {
 
 	@ValidateIf((_object, value) => value !== undefined)
 	@IsString()
-	@Length(3, 20)
+	@Length(1, 254)
 	@Field(() => String, { nullable: true })
 	memberNick?: string;
 
