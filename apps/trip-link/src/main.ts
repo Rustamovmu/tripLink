@@ -6,6 +6,7 @@ import type { RequestHandler } from 'express';
 import * as graphqlUploadPackage from 'graphql-upload';
 import { AppModule } from './app.module';
 import { uploadRoot } from './libs/config';
+import { AuthConfig } from './components/auth/auth.config';
 import { LoggingInterceptor } from './libs/interceptors/Logging.interceptor';
 
 const graphqlUploadExpress = (
@@ -16,14 +17,20 @@ const graphqlUploadExpress = (
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule);
-	const frontendOrigins = (process.env.FRONTEND_ORIGINS ?? 'http://localhost:3000')
-		.split(',')
-		.map((origin) => origin.trim())
-		.filter(Boolean);
+	const config = app.get(AuthConfig);
+	const httpServer = app.getHttpAdapter().getInstance() as express.Express;
+	httpServer.set('trust proxy', config.trustProxyHops);
 	app.enableCors({
-		origin: frontendOrigins,
-		methods: ['POST', 'OPTIONS'],
-		allowedHeaders: ['Authorization', 'Content-Type', 'Apollo-Require-Preflight'],
+		origin: config.origins,
+		credentials: true,
+		methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+		allowedHeaders: [
+			'Authorization',
+			'Content-Type',
+			'Apollo-Require-Preflight',
+			'X-TripLink-Auth',
+			'X-Refresh-Request-Id',
+		],
 		optionsSuccessStatus: 204,
 	});
 	app.useWebSocketAdapter(new WsAdapter(app));

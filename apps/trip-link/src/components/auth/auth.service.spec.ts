@@ -3,6 +3,9 @@ import { JwtService } from '@nestjs/jwt';
 import { Model, Types } from 'mongoose';
 import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { AuthService } from './auth.service';
+import { TokenService } from './token.service';
+import { AuthConfig } from './auth.config';
+import { AuthSessionService } from './auth-session.service';
 
 describe('Current-account authentication', () => {
 	const id = new Types.ObjectId();
@@ -23,7 +26,22 @@ describe('Current-account authentication', () => {
 		});
 		select = jest.fn().mockReturnValue({ lean: jest.fn().mockReturnValue({ exec }) });
 		findById = jest.fn().mockReturnValue({ select });
-		service = new AuthService(jwt, { findById } as unknown as Model<never>);
+		const tokens = new TokenService(jwt, {
+			accessSecret: 'unit-test-secret',
+			refreshSecret: 'different-unit-test-secret',
+			accessSeconds: 900,
+		} as AuthConfig);
+		const sessions = {
+			assertActive: jest.fn().mockResolvedValue({}),
+			create: async (member: { _id: string; memberType: MemberType; memberNick: string }) => ({
+				accessToken: await tokens.access(member, id.toHexString()),
+			}),
+		};
+		service = new AuthService(
+			tokens,
+			{ findById } as unknown as Model<never>,
+			sessions as unknown as AuthSessionService,
+		);
 	});
 
 	function token(role = MemberType.USER) {
@@ -70,6 +88,8 @@ describe('Current-account authentication', () => {
 				sub: id.toHexString(),
 				memberType: role,
 				memberImage: 'uploads/member/spoof.png',
+				sid: id.toHexString(),
+				type: 'access',
 			});
 			expect(await service.verifyToken(stale, true)).toMatchObject({ memberImage });
 		},

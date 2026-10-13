@@ -33,7 +33,12 @@ export interface SocketSession {
 }
 
 export type ChatErrorCode =
-	'BAD_REQUEST' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'INTERNAL_SERVER_ERROR' | 'TOO_MANY_REQUESTS';
+	| 'ACCESS_TOKEN_EXPIRED'
+	| 'BAD_REQUEST'
+	| 'UNAUTHENTICATED'
+	| 'FORBIDDEN'
+	| 'INTERNAL_SERVER_ERROR'
+	| 'TOO_MANY_REQUESTS';
 
 export type ChatResponse =
 	| { event: 'authenticated'; data: { memberData: ChatMember; totalClients: number } }

@@ -1,3 +1,4 @@
+import './auth-test-support';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
@@ -93,7 +94,10 @@ describe('Ranking GraphQL contract (disposable MongoDB)', () => {
 		}
 	});
 	async function graphql(query: string, variables: Record<string, unknown>, bearer?: string): Promise<GraphResponse> {
-		const req = request(app.getHttpServer()).post('/graphql');
+		const req = request(app.getHttpServer())
+			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1');
 		if (bearer) req.set('Authorization', `Bearer ${bearer}`);
 		const response = await req.send({ query, variables });
 		return response.body as GraphResponse;

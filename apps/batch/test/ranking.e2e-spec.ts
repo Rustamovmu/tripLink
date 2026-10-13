@@ -1,3 +1,4 @@
+import '../../trip-link/test/auth-test-support';
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getConnectionToken, getModelToken } from '@nestjs/mongoose';

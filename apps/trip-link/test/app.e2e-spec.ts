@@ -1,3 +1,4 @@
+import './auth-test-support';
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';

@@ -1,3 +1,4 @@
+import './auth-test-support';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
@@ -225,6 +226,8 @@ describe('Image uploads (real multipart GraphQL and static HTTP e2e)', () => {
 	it('rejects malformed multipart maps before invoking upload storage', async () => {
 		const res = await request(app!.getHttpServer())
 			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1')
 			.set('Apollo-Require-Preflight', 'true')
 			.set('Authorization', `Bearer ${user.token}`)
 			.field(
@@ -278,7 +281,10 @@ describe('Image uploads (real multipart GraphQL and static HTTP e2e)', () => {
 		const map = Object.fromEntries(
 			images.map((_img, index) => [String(index), [batch ? `variables.files.${index}` : 'variables.file']]),
 		);
-		let req = request(app!.getHttpServer()).post('/graphql');
+		let req = request(app!.getHttpServer())
+			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1');
 		if (token) req = req.set('Authorization', `Bearer ${token}`);
 		if (preflight) req = req.set('Apollo-Require-Preflight', 'true');
 		req = req.field('operations', JSON.stringify({ query, variables })).field('map', JSON.stringify(map));

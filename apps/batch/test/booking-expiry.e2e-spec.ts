@@ -1,3 +1,4 @@
+import '../../trip-link/test/auth-test-support';
 import { INestApplication, InternalServerErrorException, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
@@ -287,6 +288,8 @@ describe('Scheduled unpaid expiry (real disposable MongoDB)', () => {
 			newWorker().runBookingExpiry(),
 			request(api.getHttpServer())
 				.post('/graphql')
+				.set('Origin', 'http://localhost:3000')
+				.set('X-TripLink-Auth', '1')
 				.set('Authorization', `Bearer ${adminToken}`)
 				.send({
 					query: 'mutation($input: String!) { expireBookingByAdmin(bookingId: $input) { bookingStatus } }',
@@ -337,6 +340,8 @@ describe('Scheduled unpaid expiry (real disposable MongoDB)', () => {
 			newWorker().runBookingExpiry(),
 			request(api.getHttpServer())
 				.post('/graphql')
+				.set('Origin', 'http://localhost:3000')
+				.set('X-TripLink-Auth', '1')
 				.set('Authorization', `Bearer ${token}`)
 				.send({
 					query: 'mutation($input: String!) { payBooking(bookingId: $input) { bookingStatus } }',
@@ -390,6 +395,8 @@ describe('Scheduled unpaid expiry (real disposable MongoDB)', () => {
 		});
 		const payment = request(api.getHttpServer())
 			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1')
 			.set('Authorization', `Bearer ${token}`)
 			.send({
 				query: 'mutation($input: String!) { payBooking(bookingId: $input) { bookingStatus } }',

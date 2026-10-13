@@ -1,3 +1,4 @@
+import './auth-test-support';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
@@ -78,7 +79,10 @@ describe('Help Center API (disposable MongoDB)', () => {
 		}
 	});
 	async function call(query: string, variables: Record<string, unknown>, token?: string): Promise<Result> {
-		const req = request(app.getHttpServer()).post('/graphql');
+		const req = request(app.getHttpServer())
+			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1');
 		if (token) req.set('Authorization', `Bearer ${token}`);
 		return (await req.send({ query, variables })).body as Result;
 	}

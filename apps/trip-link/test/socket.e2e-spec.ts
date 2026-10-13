@@ -1,3 +1,4 @@
+import './auth-test-support';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
@@ -98,8 +99,8 @@ describe('Authenticated shared group chat (real WebSocket e2e)', () => {
 		clients = [];
 	});
 	afterEach(async () => {
-		for (const client of clients) client.socket.terminate();
-		await Promise.all(clients.map((client) => client.closed));
+		for (const client of clients ?? []) client.socket.terminate();
+		await Promise.all((clients ?? []).map((client) => client.closed));
 	});
 	afterAll(async () => {
 		try {
@@ -208,9 +209,15 @@ describe('Authenticated shared group chat (real WebSocket e2e)', () => {
 	});
 
 	it('rejects missing, malformed and expired tokens and never sends room data to those clients', async () => {
-		const expired = await app
-			.get<JwtService>(JwtService)
-			.signAsync({ sub: user.id.toHexString(), memberType: user.role }, { expiresIn: -1 });
+		const expired = await app.get<JwtService>(JwtService).signAsync(
+			{
+				sub: user.id.toHexString(),
+				sid: app.get<JwtService>(JwtService).decode<{ sid: string }>(user.token).sid,
+				type: 'access',
+				memberType: user.role,
+			},
+			{ expiresIn: -1 },
+		);
 		for (const token of [undefined, 'invalid', expired]) {
 			const client = await open();
 			client.send(token === undefined ? 'getMessages' : 'authenticate', token === undefined ? {} : { token });
@@ -230,14 +237,24 @@ describe('Authenticated shared group chat (real WebSocket e2e)', () => {
 	});
 
 	it('rejects a previously authenticated token once it expires', async () => {
-		const token = await app
-			.get<JwtService>(JwtService)
-			.signAsync({ sub: user.id.toHexString(), memberType: user.role, memberNick: user.nick }, { expiresIn: 2 });
+		const token = await app.get<JwtService>(JwtService).signAsync(
+			{
+				sub: user.id.toHexString(),
+				sid: app.get<JwtService>(JwtService).decode<{ sid: string }>(user.token).sid,
+				type: 'access',
+				memberType: user.role,
+				memberNick: user.nick,
+			},
+			{ expiresIn: 2 },
+		);
 		const client = await connect(token);
 		await new Promise<void>((resolve) => setTimeout(resolve, 2200));
 		client.send('getMessages', {});
-		expect((await client.next('error')).data.code).toBe('UNAUTHENTICATED');
-		expect(await client.closed).toBe(1008);
+		expect((await client.next('error')).data.code).toBe('ACCESS_TOKEN_EXPIRED');
+		client.send('reauthenticate', { token: user.token });
+		expect((await client.next('authenticated')).data.memberData._id).toBe(user.id.toHexString());
+		client.send('getMessages', {});
+		expect((await client.next('getMessages')).data.list).toBeDefined();
 	});
 
 	it('does not leak broadcasts or history to an idle unauthenticated connection', async () => {

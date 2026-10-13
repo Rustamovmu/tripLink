@@ -95,13 +95,13 @@ export class SocketGateway implements OnGatewayConnection<WebSocket>, OnGatewayD
 			Object.keys(command).some((key) => !['event', 'data'].includes(key))
 		)
 			throw new BadRequestException('Invalid command');
-		if (session.member) {
+		if (session.member && !(isRecord(command) && command.event === 'reauthenticate')) {
 			if (!session.token) throw new UnauthorizedException();
 			session.member = await this.verify(session.token);
 			if (!this.current(client, session)) return;
 		}
-		if (command.event === 'authenticate') {
-			if (session.member) throw new BadRequestException('Already authenticated');
+		if (command.event === 'authenticate' || command.event === 'reauthenticate') {
+			if (session.member && command.event === 'authenticate') throw new BadRequestException('Already authenticated');
 			if (
 				!isRecord(command.data) ||
 				typeof command.data.token !== 'string' ||
@@ -112,6 +112,7 @@ export class SocketGateway implements OnGatewayConnection<WebSocket>, OnGatewayD
 			const token = command.data.token.trim();
 			const member = await this.verify(token);
 			if (!this.current(client, session)) return;
+			if (session.member && session.member._id !== member._id) throw new UnauthorizedException();
 			session.token = token;
 			session.member = member;
 			if (session.authTimer) clearTimeout(session.authTimer);
@@ -241,9 +242,17 @@ export class SocketGateway implements OnGatewayConnection<WebSocket>, OnGatewayD
 	}
 
 	private handleFailure(client: WebSocket, error: unknown): void {
-		if (error instanceof UnauthorizedException)
-			this.reject(client, 'UNAUTHENTICATED', 'Please authenticate with a valid access token', 1008);
-		else if (error instanceof ForbiddenException)
+		if (error instanceof UnauthorizedException) {
+			const response = error.getResponse();
+			if (
+				typeof response === 'object' &&
+				'authCode' in response &&
+				response.authCode === 'ACCESS_TOKEN_EXPIRED' &&
+				!!this.chat.getSession(client)?.member
+			)
+				this.reject(client, 'ACCESS_TOKEN_EXPIRED', 'Access token expired');
+			else this.reject(client, 'UNAUTHENTICATED', 'Please authenticate with a valid access token', 1008);
+		} else if (error instanceof ForbiddenException)
 			this.reject(client, 'FORBIDDEN', 'This account is not available', 1008);
 		else if (error instanceof BadRequestException) this.reject(client, 'BAD_REQUEST', error.message);
 		else this.reject(client, 'INTERNAL_SERVER_ERROR', 'Chat temporarily unavailable', 1011);

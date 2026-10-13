@@ -4,6 +4,9 @@ import { GraphQLFormattedError } from 'graphql';
 
 type ErrorRecord = Record<string, unknown>;
 const HTTP_ERROR_CODES: Partial<Record<number, string>> = {
+	[HttpStatus.UNAUTHORIZED]: 'UNAUTHENTICATED',
+	[HttpStatus.FORBIDDEN]: 'FORBIDDEN',
+	[HttpStatus.TOO_MANY_REQUESTS]: 'AUTH_RATE_LIMITED',
 	[HttpStatus.NOT_FOUND]: 'NOT_FOUND',
 	[HttpStatus.CONFLICT]: 'CONFLICT',
 };
@@ -23,9 +26,11 @@ export const formatGraphQLError = (error: GraphQLFormattedError, originalError: 
 	const exception = unwrapResolverError(originalError);
 	let code = error.extensions?.code ?? 'INTERNAL_SERVER_ERROR';
 	let responseMessage: unknown;
+	let authCode: unknown;
 	if (exception instanceof HttpException) {
 		code = HTTP_ERROR_CODES[exception.getStatus()] ?? code;
 		const response = exception.getResponse();
+		authCode = typeof response === 'object' ? getNestedValue(response, ['authCode']) : undefined;
 		responseMessage = typeof response === 'string' ? response : getNestedValue(response, ['message']);
 	}
 
@@ -40,5 +45,8 @@ export const formatGraphQLError = (error: GraphQLFormattedError, originalError: 
 		: extensionMessage;
 
 	// Return only the public message and code, excluding exception details and stack traces.
-	return { message: typeof message === 'string' && message.length > 0 ? message : error.message, extensions: { code } };
+	return {
+		message: typeof message === 'string' && message.length > 0 ? message : error.message,
+		extensions: { code, ...(typeof authCode === 'string' ? { authCode } : {}) },
+	};
 };

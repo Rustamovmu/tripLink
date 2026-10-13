@@ -1,5 +1,8 @@
+import type { Request, Response } from 'express';
+import { AuthEntryGuard } from '../auth/guards/auth-entry.guard';
+import { AuthCookieService } from '../auth/auth-cookie.service';
 import { UseGuards } from '@nestjs/common';
-import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
+import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 import type { GraphQLScalarType } from 'graphql';
 import * as graphqlUploadPackage from 'graphql-upload';
 import { AgentsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
@@ -26,22 +29,38 @@ export class MemberResolver {
 	constructor(
 		private readonly memberService: MemberService,
 		private readonly uploadService: UploadService,
+		private readonly cookies: AuthCookieService,
 	) {}
 
+	@UseGuards(AuthEntryGuard)
 	@Mutation(() => AuthPayload)
-	public signup(@Args('input') input: MemberInput): Promise<AuthPayload> {
-		return this.memberService.signup(input);
+	public async signup(
+		@Args('input') input: MemberInput,
+		@Context() context: { req: Request; res: Response },
+	): Promise<AuthPayload> {
+		const payload = await this.memberService.signup(input, { userAgent: context.req.headers['user-agent'] });
+		this.cookies.set(context.res, payload);
+		return { accessToken: payload.accessToken, member: payload.member };
 	}
-
+	@UseGuards(AuthEntryGuard)
 	@Mutation(() => AuthPayload)
-	public login(@Args('input') input: LoginInput): Promise<AuthPayload> {
-		return this.memberService.login(input);
+	public async login(
+		@Args('input') input: LoginInput,
+		@Context() context: { req: Request; res: Response },
+	): Promise<AuthPayload> {
+		const payload = await this.memberService.login(input, { userAgent: context.req.headers['user-agent'] });
+		this.cookies.set(context.res, payload);
+		return { accessToken: payload.accessToken, member: payload.member };
 	}
 
 	@UseGuards(AuthGuard)
 	@Mutation(() => AuthPayload)
-	public updateMember(@Args('input') input: MemberUpdate, @AuthMember('sub') memberId: string): Promise<AuthPayload> {
-		return this.memberService.updateMember(memberId, input);
+	public updateMember(
+		@Args('input') input: MemberUpdate,
+		@AuthMember('sub') memberId: string,
+		@AuthMember('sid') sid: string,
+	): Promise<AuthPayload> {
+		return this.memberService.updateMember(memberId, input, sid);
 	}
 
 	@UseGuards(AuthGuard)

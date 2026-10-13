@@ -1,13 +1,16 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { ForbiddenException, Injectable } from '@nestjs/common';
+import { authFailure, TokenService } from './token.service';
+import { AuthSessionService, SessionMetadata } from './auth-session.service';
 import { InjectModel } from '@nestjs/mongoose';
-import { isValidObjectId, Model, Types } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Message } from '../../libs/enums/common.enum';
 import * as bcrypt from 'bcryptjs';
 import { Member } from '../../libs/dto/member/member';
 import { MemberStatus, MemberType } from '../../libs/enums/member.enum';
 
 export interface AuthTokenPayload {
+	sid: string;
+	type: 'access';
 	sub: string;
 	memberType: MemberType;
 	memberNick: string;
@@ -38,8 +41,9 @@ type AuthMemberRecord = {
 @Injectable()
 export class AuthService {
 	constructor(
-		private readonly jwtService: JwtService,
+		private readonly tokens: TokenService,
 		@InjectModel('Member') private readonly memberModel: Model<AuthMemberRecord>,
+		private readonly sessions: AuthSessionService,
 	) {}
 
 	public async hashPassword(password: string): Promise<string> {
@@ -51,35 +55,25 @@ export class AuthService {
 		return bcryptApi.compare(password, hashedPassword);
 	}
 
-	public createToken(member: TokenMember): Promise<string> {
-		const memberId = typeof member._id === 'string' ? member._id : member._id.toHexString();
-		const payload: AuthTokenPayload = {
-			sub: memberId,
-			memberType: member.memberType,
-			memberNick: member.memberNick,
-		};
-
-		return this.jwtService.signAsync(payload);
+	public issueSession(member: TokenMember, metadata: SessionMetadata = {}) {
+		return this.sessions.create(
+			{ ...member, _id: typeof member._id === 'string' ? member._id : member._id.toHexString() },
+			metadata,
+		);
+	}
+	public async createToken(member: TokenMember, sid?: string): Promise<string> {
+		return sid ? this.tokens.access(member, sid) : (await this.issueSession(member)).accessToken;
+	}
+	public revokeOtherSessions(memberId: string, sid: string) {
+		return this.sessions.revokeAll(memberId, sid);
 	}
 
 	public async verifyToken(
 		token: string,
 		includeMemberImage = false,
 	): Promise<AuthTokenPayload & { memberImage?: string }> {
-		let payload: AuthTokenPayload;
-		try {
-			payload = await this.jwtService.verifyAsync<AuthTokenPayload>(token);
-		} catch {
-			throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
-		}
-		if (
-			!payload ||
-			typeof payload.sub !== 'string' ||
-			!isValidObjectId(payload.sub) ||
-			!Object.values(MemberType).includes(payload.memberType)
-		) {
-			throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
-		}
+		const payload = await this.tokens.verifyAccess(token);
+		await this.sessions.assertActive(payload.sid, payload.sub);
 
 		// Do not catch database errors as authentication failures or cache account state across requests.
 		const member = await this.memberModel
@@ -88,10 +82,10 @@ export class AuthService {
 			.lean<AuthMemberRecord>()
 			.exec();
 		if (!member || member.memberStatus === MemberStatus.DELETE || member.memberType !== payload.memberType) {
-			throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
+			throw authFailure('UNAUTHORIZED');
 		}
 		if (member.memberStatus !== MemberStatus.ACTIVE) {
-			throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
+			throw new ForbiddenException({ message: Message.ACCOUNT_UNAVAILABLE, authCode: 'ACCOUNT_UNAVAILABLE' });
 		}
 		return {
 			...payload,

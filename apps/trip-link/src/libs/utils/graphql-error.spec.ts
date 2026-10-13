@@ -14,6 +14,7 @@ describe('GraphQL error formatting', () => {
 	it.each([
 		['NOT_FOUND', new NotFoundException('Tour not found')],
 		['CONFLICT', new ConflictException('Booking is unsettled')],
+		['UNAUTHENTICATED', new UnauthorizedException('Sign in again')],
 	])('maps wrapped HTTP exception to %s', (code, exception) => {
 		const original = new GraphQLError(exception.message, { originalError: exception, path: ['testResolver'] });
 		expect(
@@ -34,6 +35,17 @@ describe('GraphQL error formatting', () => {
 		});
 	});
 
+	it('retains only the public authentication reason with the existing code', () => {
+		const error = new UnauthorizedException({
+			message: 'Sign in again',
+			authCode: 'ACCESS_TOKEN_EXPIRED',
+			privateToken: 'secret',
+		});
+		expect(formatGraphQLError({ message: 'Fallback', extensions: { code: 'INTERNAL_SERVER_ERROR' } }, error)).toEqual({
+			message: 'Sign in again',
+			extensions: { code: 'UNAUTHENTICATED', authCode: 'ACCESS_TOKEN_EXPIRED' },
+		});
+	});
 	it('joins field validation messages from a real Nest exception', () => {
 		const exception = new BadRequestException([
 			'tourId must be a mongodb id',

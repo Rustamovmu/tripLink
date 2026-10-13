@@ -1,3 +1,4 @@
+import './auth-test-support';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
@@ -341,7 +342,10 @@ describe('Community articles (e2e)', () => {
 		);
 	}
 	function send(query: string, variables: Record<string, unknown>, token = '') {
-		const req = request(app.getHttpServer()).post('/graphql');
+		const req = request(app.getHttpServer())
+			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1');
 		if (token) req.set('Authorization', `Bearer ${token}`);
 		return req.send({ query, variables }).then((res) => res.body as Result);
 	}

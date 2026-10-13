@@ -22,6 +22,8 @@ class FakeClient extends EventEmitter {
 }
 
 const payload: AuthTokenPayload = {
+	sid: '507f1f77bcf86cd799439011',
+	type: 'access',
 	sub: 'member-id',
 	memberNick: 'Traveler',
 	memberType: MemberType.USER,

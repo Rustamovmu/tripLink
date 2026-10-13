@@ -19,6 +19,7 @@ const graphQLLogger = new Logger('GraphQL');
 			driver: ApolloDriver,
 			playground: true,
 			uploads: false,
+			context: ({ req, res }: { req: unknown; res: unknown }) => ({ req, res }),
 			autoSchemaFile: true,
 			formatError: (error: GraphQLFormattedError, originalError: unknown): GraphQLFormattedError => {
 				const formattedError = formatGraphQLError(error, originalError);

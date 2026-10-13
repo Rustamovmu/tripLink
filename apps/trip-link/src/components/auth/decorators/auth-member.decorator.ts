@@ -3,7 +3,7 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 import { AuthTokenPayload } from '../auth.service';
 import type { AuthenticatedGraphQLRequest } from '../guards/auth.guard';
 
-type AuthMemberKey = keyof Pick<AuthTokenPayload, 'sub' | 'memberType' | 'memberNick'>;
+type AuthMemberKey = keyof Pick<AuthTokenPayload, 'sub' | 'memberType' | 'memberNick' | 'sid'>;
 
 export const AuthMember = createParamDecorator(
 	(

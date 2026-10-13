@@ -1,3 +1,4 @@
+import './auth-test-support';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
@@ -115,7 +116,10 @@ describe('Authenticated AI HTTP and shared Mongo quotas (mocked Gemini)', () => 
 	});
 	const send = (input: unknown, token?: string) => {
 		if (!app) throw new Error('AI fixture app not initialized');
-		const req = request(app.getHttpServer()).post('/graphql');
+		const req = request(app.getHttpServer())
+			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1');
 		if (token) req.set('Authorization', 'Bearer ' + token);
 		return req.send({ query: operation, variables: { input } });
 	};

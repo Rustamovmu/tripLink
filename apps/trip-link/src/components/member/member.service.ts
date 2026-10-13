@@ -18,6 +18,7 @@ import { LikeGroup } from '../../libs/enums/like.enum';
 import { MemberAuthType, MemberStatus, MemberType } from '../../libs/enums/member.enum';
 import { ReviewStatus } from '../../libs/enums/review.enum';
 import { TourStatus } from '../../libs/enums/tour.enum';
+import { SessionMetadata } from '../auth/auth-session.service';
 import { AuthService } from '../auth/auth.service';
 import { LikeService, LikeToggleInput } from '../like/like.service';
 
@@ -89,7 +90,10 @@ export class MemberService {
 		private readonly likeService: LikeService,
 	) {}
 
-	public async signup(input: MemberInput): Promise<AuthPayload> {
+	public async signup(
+		input: MemberInput,
+		metadata: SessionMetadata = {},
+	): Promise<AuthPayload & { refreshToken: string; refreshExpiresAt: Date }> {
 		const memberEmail = input.memberEmail?.trim().toLowerCase();
 		const memberPhone = input.memberPhone?.trim();
 		const memberAuthType = input.memberAuthType ?? (memberEmail ? MemberAuthType.EMAIL : MemberAuthType.PHONE);
@@ -113,13 +117,16 @@ export class MemberService {
 				memberPassword,
 			});
 
-			const accessToken = await this.authService.createToken({
-				_id: this.toObjectIdString(createdMember._id),
-				memberType: createdMember.memberType,
-				memberNick: createdMember.memberNick,
-			});
+			const session = await this.authService.issueSession(
+				{
+					_id: this.toObjectIdString(createdMember._id),
+					memberType: createdMember.memberType,
+					memberNick: createdMember.memberNick,
+				},
+				metadata,
+			);
 			return {
-				accessToken,
+				...session,
 				member: this.toPublicMember(createdMember.toObject()),
 			};
 		} catch (error: unknown) {
@@ -135,7 +142,10 @@ export class MemberService {
 		}
 	}
 
-	public async login(input: LoginInput): Promise<AuthPayload> {
+	public async login(
+		input: LoginInput,
+		metadata: SessionMetadata = {},
+	): Promise<AuthPayload & { refreshToken: string; refreshExpiresAt: Date }> {
 		const member = await this.memberModel
 			.findOne({ memberNick: input.memberNick.trim() })
 			.select('+memberPassword')
@@ -156,19 +166,22 @@ export class MemberService {
 			.updateOne({ _id: member._id }, { $set: { lastLoginAt: new Date() } }, { timestamps: false })
 			.exec();
 
-		const accessToken = await this.authService.createToken({
-			_id: this.toObjectIdString(member._id),
-			memberType: member.memberType,
-			memberNick: member.memberNick,
-		});
+		const session = await this.authService.issueSession(
+			{
+				_id: this.toObjectIdString(member._id),
+				memberType: member.memberType,
+				memberNick: member.memberNick,
+			},
+			metadata,
+		);
 
 		return {
-			accessToken,
+			...session,
 			member: this.toPublicMember(member.toObject()),
 		};
 	}
 
-	public async updateMember(memberId: string, input: MemberUpdate): Promise<AuthPayload> {
+	public async updateMember(memberId: string, input: MemberUpdate, sid: string): Promise<AuthPayload> {
 		const { passwordChange } = input;
 		const update: MemberUpdateFields = {};
 
@@ -219,11 +232,15 @@ export class MemberService {
 
 			if (!updatedMember) throw new ForbiddenException(Message.ACCOUNT_UNAVAILABLE);
 
-			const accessToken = await this.authService.createToken({
-				_id: this.toObjectIdString(updatedMember._id),
-				memberType: updatedMember.memberType,
-				memberNick: updatedMember.memberNick,
-			});
+			const accessToken = await this.authService.createToken(
+				{
+					_id: this.toObjectIdString(updatedMember._id),
+					memberType: updatedMember.memberType,
+					memberNick: updatedMember.memberNick,
+				},
+				sid,
+			);
+			if (passwordChange) await this.authService.revokeOtherSessions(memberId, sid);
 
 			return {
 				accessToken,

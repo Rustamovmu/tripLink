@@ -1,3 +1,4 @@
+import './auth-test-support';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { getConnectionToken } from '@nestjs/mongoose';
@@ -118,6 +119,8 @@ describe('Current-account authorization (e2e)', () => {
 		async (field) => {
 			const response = await request(app.getHttpServer())
 				.post('/graphql')
+				.set('Origin', 'http://localhost:3000')
+				.set('X-TripLink-Auth', '1')
 				.set('Authorization', `Bearer ${user.token}`)
 				.send({ query: `query { getCurrentMember { _id ${field} } }`, variables: {} })
 				.expect(400);
@@ -130,6 +133,8 @@ describe('Current-account authorization (e2e)', () => {
 	it('rejects a client-supplied member ID on the current-account query', async () => {
 		const response = await request(app.getHttpServer())
 			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1')
 			.set('Authorization', `Bearer ${user.token}`)
 			.send({
 				query: 'query Current($memberId: String!) { getCurrentMember(memberId: $memberId) { _id } }',
@@ -251,9 +256,16 @@ describe('Current-account authorization (e2e)', () => {
 		await connection.collection('members').deleteOne({ _id: new Types.ObjectId(removed.id) });
 		expect((await graphql(checkQuery, {}, removed.token)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
 		expect((await graphql(currentMemberQuery, {}, removed.token)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
-		const expired = await app
-			.get(JwtService)
-			.signAsync({ sub: user.id, memberType: MemberType.USER, memberNick: user.nick }, { expiresIn: -1 });
+		const expired = await app.get(JwtService).signAsync(
+			{
+				sub: user.id,
+				sid: app.get<JwtService>(JwtService).decode<{ sid: string }>(user.token).sid,
+				type: 'access',
+				memberType: MemberType.USER,
+				memberNick: user.nick,
+			},
+			{ expiresIn: -1 },
+		);
 		expect((await graphql(checkQuery, {}, expired)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
 		expect((await graphql(currentMemberQuery, {}, expired)).errors?.[0].extensions?.code).toBe('UNAUTHENTICATED');
 	});
@@ -351,7 +363,10 @@ describe('Current-account authorization (e2e)', () => {
 		variables: Record<string, unknown> = {},
 		token?: string,
 	): Promise<Result<T>> {
-		const pending = request(app.getHttpServer()).post('/graphql');
+		const pending = request(app.getHttpServer())
+			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1');
 		if (token) pending.set('Authorization', `Bearer ${token}`);
 		const response = await pending.send({ query, variables }).expect(200);
 		return JSON.parse(response.text) as Result<T>;

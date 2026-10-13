@@ -1,3 +1,4 @@
+import '../../trip-link/test/auth-test-support';
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';
@@ -50,7 +51,11 @@ describe('BatchController (e2e)', () => {
 
 	it('serves the batch welcome route without a GraphQL endpoint', async () => {
 		await request(app.getHttpServer()).get('/').expect(200).expect('Welcome to the Batch API!');
-		await request(app.getHttpServer()).post('/graphql').expect(404);
+		await request(app.getHttpServer())
+			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1')
+			.expect(404);
 	});
 	it('registers the job but performs no expiry without opt-in', async () => {
 		expect(app.get(SchedulerRegistry).getCronJob(BOOKING_EXPIRY_JOB)).toBeDefined();

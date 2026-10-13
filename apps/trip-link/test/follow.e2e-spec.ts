@@ -1,3 +1,4 @@
+import './auth-test-support';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -350,7 +351,11 @@ describe('Follow GraphQL API (e2e)', () => {
 		variables: Record<string, unknown>,
 		accessToken?: string,
 	): Promise<GraphQLResponse<T>> {
-		let operation = request(app.getHttpServer()).post('/graphql').send({ query, variables });
+		let operation = request(app.getHttpServer())
+			.post('/graphql')
+			.set('Origin', 'http://localhost:3000')
+			.set('X-TripLink-Auth', '1')
+			.send({ query, variables });
 		if (accessToken) operation = operation.set('Authorization', `Bearer ${accessToken}`);
 		const response = await operation.expect(200);
 		const parsed: unknown = JSON.parse(response.text);
