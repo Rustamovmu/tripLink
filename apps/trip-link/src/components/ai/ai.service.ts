@@ -29,9 +29,10 @@ export class AiService {
 							limit: AI_TOUR_LIMIT,
 							search: this.search(input),
 							sort:
-								input.intent === 'BEST_RATED' || /best.rated|highest.rated|평점|рейтинг/iu.test(input.message)
+								input.intent === 'BEST_RATED' ||
+								/best.rated|highest.rated|평점|рейтинг|eng yuqori baho/iu.test(input.message)
 									? 'tourAverageRating'
-									: input.intent === 'POPULAR_DESTINATIONS' || /popular|인기|популяр/iu.test(input.message)
+									: input.intent === 'POPULAR_DESTINATIONS' || /popular|인기|популяр|ommabop/iu.test(input.message)
 										? 'tourBookingCount'
 										: 'createdAt',
 							direction: Direction.DESC,
@@ -61,7 +62,10 @@ export class AiService {
 				[...history, { role: 'user', text: input.message }],
 				catalogue,
 				input.detailed === true ||
-					/in detail|detailed explanation|자세히|자세한 설명|подробно|подробное объяснение/iu.test(input.message),
+					/in detail|detailed explanation|자세히|자세한 설명|подробно|подробное объяснение|batafsil/iu.test(
+						input.message,
+					),
+				input.locale,
 			);
 			return { text, sources };
 		} catch (error: unknown) {
@@ -81,20 +85,21 @@ export class AiService {
 
 	private search(input: AiChatInput) {
 		if (input.search && Object.keys(input.search).length) return input.search;
-		const featured = /featured|추천 투어|추천투어|избранные туры/iu.test(input.message);
+		const featured = /featured|추천 투어|추천투어|избранные туры|tavsiya etilgan/iu.test(input.message);
 		// Simple multilingual keyword retrieval; no extra Gemini call. Explicit page
 		// filters take precedence. Unknown language terms may return an empty catalogue.
 		if (input.intent) return featured ? { featured: true } : {};
 		const aliases: [RegExp, string][] = [
-			[/한국|대한민국|коре[яиюе]/giu, ' Korea '],
-			[/서울|сеул[ае]?/giu, ' Seoul '],
-			[/제주|чеджу/giu, ' Jeju '],
-			[/부산|пусан[ае]?/giu, ' Busan '],
+			[/한국|대한민국|коре[яиюе]|koreya(?:ga|da|dagi|ni)?/giu, ' Korea '],
+			[/서울|сеул[ае]?|seul(?:ga|da|dagi|ni)?/giu, ' Seoul '],
+			[/제주|чеджу|jeju(?:ga|da|dagi|ni)?/giu, ' Jeju '],
+			[/부산|пусан[ае]?|busan(?:ga|da|dagi|ni)?/giu, ' Busan '],
 		];
 		const stop = new Set(
 			(
 				'find show help me i my want would like please a an the in on at to for and or of is are can could what which where how much more tell about tour tours trip travel plan planning destination destinations popular best rated highest featured package packages prices price recommendation recommendations recommend booking book availability available days day ' +
 				'여행 투어 추천 알려주세요 보여주세요 도와주세요 계획 평점 가장 높은 인기 찾고 싶어요 에서 의 는 은 를 을 ' +
+				'sayohat sayohatlar sayohatlarni safar safarlar top toping topishga yordam bering menga ko‘rsating korsating reja rejalashtirishga ommabop eng yuqori baholangan haqida batafsil narx narxlar kun kunlar manzil manzillar manzillarini band qilish tavsiya etilgan ' +
 				'туры тур путешествие поездку поездки помогите покажите мне лучшие лучших популярные направления в на о и как где сколько подробнее'
 			).split(/\s+/u),
 		);

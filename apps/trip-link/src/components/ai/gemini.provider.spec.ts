@@ -41,6 +41,15 @@ describe('Gemini provider bounds and safe failures', () => {
 			config: { maxOutputTokens: 600 },
 		});
 	});
+	it('uses Uzbek Latin as the interface language without overriding explicit requests or sending locale text as user data', async () => {
+		await provider.generate([{ role: 'user', text: 'Please answer in English' }], '{}', false, 'uz');
+		const options = generateContent.mock.calls[0][0];
+		expect(options.config?.systemInstruction).toContain('Uzbek (Latin script, never Cyrillic)');
+		expect(options.config?.systemInstruction).toContain('unless the user explicitly requests another language');
+		expect(options.contents).toEqual(
+			expect.arrayContaining([{ role: 'user', parts: [{ text: 'Please answer in English' }] }]),
+		);
+	});
 	it('fails safely without a key and makes no provider request', async () => {
 		delete values.GEMINI_API_KEY;
 		await expect(provider.generate([], '{}', false)).rejects.toMatchObject({ extensions: { code: 'AI_UNAVAILABLE' } });

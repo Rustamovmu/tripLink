@@ -9,7 +9,9 @@ describe('AI grounding and validation', () => {
 	const tours = { getTours: jest.fn(), getTour: jest.fn() };
 	const release = jest.fn();
 	const limits = { reserve: jest.fn() };
-	const gemini = { generate: jest.fn<Promise<string>, [AiMessageInput[], string, boolean]>() };
+	const gemini = {
+		generate: jest.fn<Promise<string>, [AiMessageInput[], string, boolean, ('en' | 'kr' | 'ru' | 'uz')?]>(),
+	};
 	const ai = new AiService(
 		tours as unknown as ConstructorParameters<typeof AiService>[0],
 		limits as unknown as ConstructorParameters<typeof AiService>[1],
@@ -79,7 +81,7 @@ describe('AI grounding and validation', () => {
 		expect(tours.getTours).not.toHaveBeenCalled();
 		expect(gemini.generate.mock.calls[0][2]).toBe(true);
 	});
-	it.each(['Find tours in Korea', '한국 여행 추천', 'Туры в Корее'])(
+	it.each(['Find tours in Korea', '한국 여행 추천', 'Туры в Корее', 'Koreyaga sayohat topishga yordam bering'])(
 		'retrieves a Korea keyword for %s without an extra model call',
 		async (message) => {
 			await ai.chat('member', { message });
@@ -89,6 +91,17 @@ describe('AI grounding and validation', () => {
 			expect(gemini.generate).toHaveBeenCalledTimes(1);
 		},
 	);
+	it('validates optional locale and forwards Uzbek without altering user text', async () => {
+		for (const locale of ['en', 'kr', 'ru', 'uz']) {
+			expect(validateSync(plainToInstance(AiChatInput, { message: 'Hello', locale }))).toHaveLength(0);
+		}
+		expect(
+			validateSync(plainToInstance(AiChatInput, { message: 'Hello', locale: 'arbitrary prompt' })),
+		).not.toHaveLength(0);
+		await ai.chat('member', { message: 'Salom', intent: 'FIND_TOURS', locale: 'uz' });
+		expect(gemini.generate.mock.calls[0][3]).toBe('uz');
+		expect(gemini.generate.mock.calls[0][0].at(-1)).toEqual({ role: 'user', text: 'Salom' });
+	});
 	it('preserves explicit filters and returns an empty grounded catalogue honestly', async () => {
 		tours.getTours.mockResolvedValue({ list: [], metaCounter: [] });
 		const result = await ai.chat('member', { message: 'Find tours', search: { cities: ['Busan'] } });

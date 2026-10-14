@@ -10,11 +10,22 @@ import type { AiMessageInput } from '../../libs/dto/ai/ai-chat.input';
 export class GeminiProvider {
 	constructor(private readonly config: ConfigService) {}
 
-	async generate(messages: AiMessageInput[], catalogue: string, detailed: boolean): Promise<string> {
+	async generate(
+		messages: AiMessageInput[],
+		catalogue: string,
+		detailed: boolean,
+		locale?: 'en' | 'kr' | 'ru' | 'uz',
+	): Promise<string> {
 		const apiKey = this.config.get<string>('GEMINI_API_KEY');
 		if (!apiKey)
 			throw new GraphQLError('AI assistance is temporarily unavailable.', { extensions: { code: 'AI_UNAVAILABLE' } });
 		const client = new GoogleGenAI({ apiKey });
+		const language = locale
+			? { en: 'English', kr: 'Korean', ru: 'Russian', uz: 'Uzbek (Latin script, never Cyrillic)' }[locale]
+			: undefined;
+		const languageContext = language
+			? `\nThe interface language is ${language}. Normally reply in this language unless the user explicitly requests another language.`
+			: '';
 		try {
 			const response = await client.models.generateContent({
 				model: this.config.get<string>('GEMINI_MODEL') || AI_DEFAULT_MODEL,
@@ -23,7 +34,7 @@ export class GeminiProvider {
 					...messages.map(({ role, text }) => ({ role: role === 'assistant' ? 'model' : 'user', parts: [{ text }] })),
 				],
 				config: {
-					systemInstruction: `${AI_SYSTEM_PROMPT}\n${detailed ? 'The user explicitly requested more detail. Stay under 600 tokens.' : 'Stay under 200 tokens.'}`,
+					systemInstruction: `${AI_SYSTEM_PROMPT}${languageContext}\n${detailed ? 'The user explicitly requested more detail. Stay under 600 tokens.' : 'Stay under 200 tokens.'}`,
 					maxOutputTokens: detailed ? 600 : 200,
 					thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
 					httpOptions: { timeout: AI_TIMEOUT_MS, retryOptions: { attempts: 1 } },

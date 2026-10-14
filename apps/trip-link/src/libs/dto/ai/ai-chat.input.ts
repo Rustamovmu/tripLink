@@ -29,6 +29,11 @@ export class AiMessageInput {
 
 @InputType()
 export class AiChatInput {
+	@IsOptional()
+	@IsIn(['en', 'kr', 'ru', 'uz'])
+	@Field(() => String, { nullable: true })
+	locale?: 'en' | 'kr' | 'ru' | 'uz';
+
 	@Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
 	@IsString()
 	@Length(1, AI_MESSAGE_LIMIT)
