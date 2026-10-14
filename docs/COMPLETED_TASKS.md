@@ -1087,3 +1087,49 @@ Validation: 230 API tests, 17 batch tests, 161 unit tests in the applied backend
 - Suggested frontend commit: `feat(i18n): add complete Uzbek interface support`.
 - Suggested backend commit: `feat(ai): support Uzbek locale context and retrieval`.
 - Next proposed backend task, requiring separate scope approval: verify production HTTPS origins and cookie-session topology, followed by live provider acceptance on the configured deployment origin.
+
+
+## 2026-10-15 — Help Center content publication
+
+- Implemented the user's approved content-only plan in the existing development/demo Help Center. Created 28 English FAQs (four per topic) and four English notices through the current authorized Admin session at `/_admin/cs/faq` and `/_admin/cs/notice`. Used the existing `createHelpEntry` and `updateHelpEntry` workflow: HOLD draft creation, exact saved-content/category checks through the Edit form, then ACTIVE publication. No credentials were requested, extracted or disclosed, and no direct database write, schema/API/service/frontend/dependency/localization change or Git commit was made.
+- Published 25 FAQs and all four notices. Retained three HOLD drafts: “How can I become a travel agent?” (no public enrollment procedure), “How can I report inappropriate content?” (no member-facing reporting workflow), and “How can I get additional help?” (no confirmed dedicated support channel). All three were re-opened to verify their full saved content and Draft status; anonymous API and browser searches confirmed they remain hidden.
+- Created FAQ coverage: Tours 4, Bookings 4, Payments 4, Accounts 4, Agents 4, Community 4 and Other 4. Published coverage: 4/4/4/4/3/3/3 respectively. Preserved supplied question order through sequential creation; used existing createdAt/_id ascending FAQ sorting and descending notice sorting. Notice order is Account and Login Options, Discover Tours and Travel Agents, Explore the TripLink Help Center, then Welcome to TripLink. Public dates display October 15, 2026 and are derived from actual stored creation timestamps; no publication-date or manual-order field was invented.
+- Content uses verified booking eligibility and simulated payment behavior. Recovery guidance qualifies email verification/delivery requirements and includes saved recovery codes. Provider names were omitted as specified in the approved plan. The model has single-language title/content fields, so English authored content is preserved on the English, Korean (`kr`), Russian and Uzbek (`uz`, Latin-script interface) routes. No translations were overwritten or added to database records.
+- Duplicate audit: both Admin lists were empty before creation; no existing records were edited or deleted and zero duplicates were skipped. The final public inventory has 29 unique IDs and 29 unique normalized titles. Published IDs are recorded below; draft IDs are not exposed by the Admin editor and were not collected through credential extraction. Drafts were verified by exact question/topic/content/status through the existing Admin system.
+- Anonymous read-only GraphQL checks passed: 25 FAQ/4 notice totals; all seven topic filters; page sizes 12/12/1 with stable ordering and no overlap; all 29 full-detail reads matching list text and timestamps; case-insensitive question search, answer search, literal/no-result search and notice search; all three held titles absent from public search. No business mutations were run for verification. Local network checks initially hit sandbox restrictions and passed with approved network access. Evidence: `/private/tmp/triplink-help-center-public.json`, `/private/tmp/triplink-help-center-public-qa.py` and `/private/tmp/triplink-help-center-public-qa.json` (local temporary artifacts, not Postman examples).
+- Incognito Chrome acceptance passed: anonymous access, FAQ accordion text, all seven category controls, three-page navigation, question/answer search, held-draft empty states, notice ordering/date display, all four complete notice dialogs and notice search. Both FAQ and Notice tabs were checked on all eight en/kr/ru/uz routes with English authored content visible. The notice layout was visually inspected. Native capture/navigation failures were worked around with a fresh window/current state; no working frontend functionality was modified. Existing Admin console aria-hidden/focus warnings and a cancelled route-load message were observed. This is focused content acceptance, not a complete accessibility/mobile/cross-browser/production audit. No code tests or typecheck were run because no implementation/configuration changed, as the approved plan specified. Existing servers and development business records were not used as rejection fixtures.
+- Only this completion-log append changes a repository file. Suggested backend documentation commit: `docs: record Help Center content publication`. No frontend commit is suggested because frontend files were unchanged. Next proposed backend task: confirm real agent-enrollment, content-reporting and additional-support procedures before separately approving publication of the three held FAQs.
+
+### Verified published record IDs
+
+| Kind/topic | Title | ID |
+| --- | --- | --- |
+| FAQ/TOURS | What is TripLink? | `6acffa2cb95e6899f1215551` |
+| FAQ/TOURS | How can I find tours on TripLink? | `6acffae9b95e6899f1215568` |
+| FAQ/TOURS | Where can I find detailed information about a tour? | `6acffb4bb95e6899f121556f` |
+| FAQ/TOURS | How can I find tours that match my interests? | `6acffb93b95e6899f121557d` |
+| FAQ/BOOKINGS | How can I book a tour on TripLink? | `6acffbbfb95e6899f1215587` |
+| FAQ/BOOKINGS | Where can I view my bookings? | `6acffbe4b95e6899f1215591` |
+| FAQ/BOOKINGS | Can I change my booking details? | `6acffc00b95e6899f121559b` |
+| FAQ/BOOKINGS | How can I cancel a booking? | `6acffc44b95e6899f12155a5` |
+| FAQ/PAYMENTS | What payment methods does TripLink support? | `6acffc52b95e6899f12155af` |
+| FAQ/PAYMENTS | Is payment required when booking a tour? | `6acffc6cb95e6899f12155b9` |
+| FAQ/PAYMENTS | Where can I check my payment status? | `6acffc7eb95e6899f12155c3` |
+| FAQ/PAYMENTS | What should I do if a payment fails? | `6acffc81b95e6899f12155cd` |
+| FAQ/ACCOUNTS | How do I create a TripLink account? | `6acffc85b95e6899f12155d7` |
+| FAQ/ACCOUNTS | How can I log in to TripLink? | `6acffc88b95e6899f12155e1` |
+| FAQ/ACCOUNTS | What should I do if I forget my password? | `6acffc8fb95e6899f12155eb` |
+| FAQ/ACCOUNTS | How can I update my profile information? | `6acffc93b95e6899f12155f5` |
+| FAQ/AGENTS | Who are the travel agents on TripLink? | `6acffc96b95e6899f12155ff` |
+| FAQ/AGENTS | How can I find a travel agent? | `6acffc9ab95e6899f1215609` |
+| FAQ/AGENTS | How can I contact a travel agent? | `6acffca2b95e6899f1215613` |
+| FAQ/COMMUNITY | What is the TripLink Community? | `6acffca8b95e6899f1215627` |
+| FAQ/COMMUNITY | How can I share my travel experiences? | `6acffcabb95e6899f1215631` |
+| FAQ/COMMUNITY | Can I interact with other members? | `6acffcb4b95e6899f121563b` |
+| FAQ/OTHER | Is TripLink free to use? | `6acffcbab95e6899f121564f` |
+| FAQ/OTHER | Which languages does TripLink support? | `6acffcbeb95e6899f1215659` |
+| FAQ/OTHER | Where can I find travel articles and events? | `6acffcc7b95e6899f1215663` |
+| NOTICE | TripLink Account and Login Options | `6acffe19b95e6899f12157b7` |
+| NOTICE | Discover Tours and Travel Agents | `6acffe13b95e6899f12157a6` |
+| NOTICE | Explore the TripLink Help Center | `6acffe0eb95e6899f1215795` |
+| NOTICE | Welcome to TripLink | `6acffe06b95e6899f1215784` |
