@@ -1144,3 +1144,115 @@ Validation: 230 API tests, 17 batch tests, 161 unit tests in the applied backend
 - Suggested frontend commit: `feat(home): replace featured photo Swiper with FlexCarousel`.
 - Suggested backend documentation commit: `docs: record Featured Tours FlexCarousel integration`.
 - Next proposed backend task, requiring separate scope approval: confirm real agent-enrollment, content-reporting and additional-support procedures before publishing the held Help Center FAQs.
+
+## 2026-10-15 — Featured tour cards use the previous Swiper
+
+- Applied the user's screenshot-specific request only to the Featured Tours card section below the photo gallery. Reused the previous centered Swiper 8 composition: 58% desktop slides with smaller neighboring cards, 72% tablet and 86% phone slides, looping, drag and keyboard navigation, 650 ms transitions and five-second autoplay. Added previous/next and persistent pause controls. Autoplay pauses during focus, pointer hover, drag, hidden/offscreen states and reduced motion; a single result stays static and two results use rewind without loop clones.
+- Reused the existing `HomeTourCard`, public `TOURS` query, featured filter, order and six-result limit. Titles, prices/discounts, image fallback, reviews, metadata, descriptions, agent names, detail links and independent save controls are preserved. Removed the mixed-width grid and first-three image-overlay layout for these cards; uniform cards keep their text below the image. The photo FlexCarousel, section introduction, all other homepage sections, API/schema/data, translations, package manifest and lockfile were unchanged.
+- Exact frontend files: `libs/components/homepage/HomeSections.tsx`, new `libs/components/homepage/FeaturedTourSwiper.tsx`, `scss/triplink.scss`, `tests/home-featured.test.cjs`, new `tests/home-featured-swiper.test.cjs`, and one import-mock addition each in `tests/home-rated.test.cjs` and `tests/home-agents.test.cjs`. References inspected: previous TripLink IntroGallery from commit `2dcb8a2` and Nestar `PopularProperties.tsx`; no architectural or dependency migration.
+- Validation passed: phase and final non-writing Yarn typechecks; scoped non-fixing ESLint with zero errors/warnings; `git diff --check`; 15 focused homepage tests; full `yarn test` (141 passed, zero failures/skips). The new test uses the installed Swiper with fake time and JSDOM geometry to verify actual five-second advancement, loop boundaries, keyboard/buttons, pointer/focus/hidden/offscreen/manual pauses, reduced motion, single/two-tour handling and cleanup. Existing component tests retain query/card/favorite/error behavior and unchanged rated/agent outputs.
+- Native Chrome fresh reads show the Featured Tours card carousel, controls and actual tour links under the retained photo FlexCarousel. Full desktop/mobile visual acceptance was limited by native control failures (`user changed application`, delayed captures and `noWindowsAvailable`); no physical-device or production-build validation was performed. Existing servers were left running; no application data or business mutation was used for verification.
+- Suggested frontend commit: `feat(home): use centered Swiper for featured tour cards`.
+- Suggested backend documentation commit: `docs: record featured tour card Swiper change`.
+- Next proposed backend task, under separate approval: confirm the procedures behind the three held Help Center FAQs.
+
+## 2026-10-15 — Approved frontend/backend source cleanup
+
+### Approval and scope
+
+- Completed the requested read-only audit first, presented exact deletion/code/dependency candidates, then received explicit user approval (`yes`) before Stage 2. Every entire-file deletion below was included in that approved list. No additional existing repository file was deleted.
+- Preserved the pre-existing 11-line Featured tour cards completion-log addition byte for byte before appending this entry. No Git commit or push was created.
+- Preserved architecture, GraphQL documents/operation bodies, HTTP/WebSocket contracts, roles, business rules, auth providers/session/security logic, all schemas/indexes, assets/uploads, locale dictionaries, routes/redirects, navigation memory, active visual effects, and operational scripts/logging. No API/schema migration or development-data cleanup was performed.
+
+### Exact file deletions and evidence
+
+| Repository | Deleted file | Evidence | Risk |
+| --- | --- | --- | --- |
+| Frontend | `libs/components/common/FiberContainer.tsx` | Unreachable legacy 3D gallery; no route or loader mounts it. | Low |
+| Frontend | `libs/components/common/ScrollControls.tsx` | Only consumed by the deleted unreachable 3D gallery; unrelated to active browsing-memory restoration. | Low |
+| Frontend | `libs/components/layout/LayoutFull.tsx` | No page/component/test/dynamic consumer. Active layouts retain their own Swiper CSS imports. | Low |
+| Frontend | `libs/config.ts` | Unused API-origin constant; no importer/loader. Active endpoint configuration is preserved. | Low |
+| Frontend | `libs/types/customJwtPayload.ts` | Unused type-only legacy JWT interface; current token helpers and member types remain. | Low |
+| Frontend | `scss/MaterialTheme/styled.ts` | No consumers of its six exported styled components; active theme files are preserved. | Low |
+| Frontend | `scss/mobile/general.scss` | Empty, zero-byte and unimported stylesheet. | Low |
+| Backend | `apps/trip-link/src/libs/types/common.ts` | Unreferenced T interface only; no runtime registration or public contract. | Low |
+
+Reference checks covered literal imports/re-exports/dynamic imports, string references, Pages Router entry points, tests/scripts/configuration, Sass imports and Nest module/provider registration. Nestar references were inspected; the 3D pair and styled-component file match the inherited Nestar implementation. No configured external consumer of these internal source files was found. Public endpoints and uncertain assets were preserved.
+
+### Exact modified-file manifest
+
+Frontend:
+
+- `apollo/admin/triplink.ts`
+- `apollo/store.ts`
+- `apollo/user/triplink.ts`
+- `libs/components/homepage/IntroMedia.tsx`
+- `libs/components/triplink/Bookings.tsx`
+- `libs/components/triplink/Common.tsx`
+- `libs/components/triplink/Community.tsx`
+- `libs/components/triplink/Members.tsx`
+- `libs/components/triplink/Reviews.tsx`
+- `libs/components/triplink/Tours.tsx`
+- `package.json`
+- `pages/_app.tsx`
+- `yarn.lock`
+
+Backend:
+
+- `docs/COMPLETED_TASKS.md`
+- `package-lock.json`
+- `package.json`
+
+### Code removed
+
+- Removed 15 unused import bindings in retained frontend files: 11 domain types from `apollo/admin/triplink.ts`; `Role`/`MemberStatus` from `apollo/user/triplink.ts`; `Box` from `Common.tsx`; `Frame` from `Community.tsx`.
+- Removed unused local bindings in `BookingsPanel`, `Frame`, `SavedTours`, `ReviewsPanel`, `TourList` and `_app.tsx`; retained translation-hook calls and theme-state initialization to preserve behavior.
+- Removed unused `themeVar` and the unconsumed `IntroSlider`/`introductionPhotos` implementation with its exclusive imports. Preserved `IntroVideo`, active galleries/carousels and all translation keys/media.
+- No active duplicate implementation was consolidated, no nonempty stylesheet was pruned, and no auth compatibility wrapper/parameter was removed.
+
+### Dependency changes
+
+- Frontend `dependencies` removed (36): `@apollo/react-components`, `@cahil/utils`, `@mui/lab`, `@mui/styles`, `@pmndrs/branding`, `@react-three/drei`, `@react-three/fiber`, `@toast-ui/editor-plugin-color-syntax`, `@toast-ui/editor-plugin-table-merged-cell`, `@toast-ui/react-editor`, `@types/three`, `animate.css`, `assert`, `axios`, `browser-image-compression`, `chart.js`, `js-cookie`, `jwt-decode`, `material-ui-pickers`, `material-ui-popup-state`, `next-images`, `notistack`, `nouislider-react`, `numeral`, `phosphor-react`, `react-cookie`, `react-moment`, `react-scrollable-feed`, `react-slick`, `react-spring`, `react-tree`, `slick-carousel`, `sweetalert2`, `three`, `valtio`, `view`.
+- Frontend `devDependencies` removed (7): `@types/assert`, `@types/axios`, `@types/js-cookie`, `@types/numeral`, `@types/react-beautiful-dnd`, `@types/react-icons`, `@types/react-slick`.
+- Backend `dependencies` removed (2): `@nestjs/axios`, `moment`.
+
+- Frontend direct dependency declarations: 97 -> 54 (runtime 77 -> 41; development 20 -> 13). Backend: 53 -> 51 (runtime 28 -> 26; development 25 unchanged). Total direct declarations removed: 45.
+- Yarn regenerated `yarn.lock`; npm regenerated the existing backend `package-lock.json`. No package-manager change, dependency addition or retained direct-version change. Frontend lock entries: 2,080 -> 1,836 (244 fewer); no retained selector version change or newly introduced tarball. Backend lock removed seven installed package entries with no added entries or retained-version changes.
+- Intentionally preserved the proposed `styled-components` and `@types/styled-components` removals because the retained Babel plugin declares the runtime package as a peer. Also preserved all manual-review items, including `react-scripts` (currently supplies undeclared JSDOM to 23 tests), Babel tooling, Sass loader, Telegram wrapper, date-picker/editor/framework peers, backend Socket.IO adapter, reserved schemas/enums, uncertain media and nonempty legacy SCSS. Installed peer warnings remain; no unrelated dependency modernization was attempted.
+- Frontend installation first attempted offline and found a missing cached ProseMirror archive; approved network access completed installation. The final clean, empty-node_modules verification used `yarn install --frozen-lockfile --offline --ignore-scripts --non-interactive`. Install lifecycle scripts were suppressed. Backend npm install synchronized the pruned installation with scripts/audit disabled.
+
+### Validation actually performed
+
+| Check | Result |
+| --- | --- |
+| Frontend phase/final `yarn typecheck` | Passed |
+| Frontend `yarn -s tsc --noEmit --incremental false --noUnusedLocals --noUnusedParameters` | Passed |
+| Frontend uncached, non-fixing ESLint over pages/libs/apollo/theme/config/middleware | 0 errors, 2 pre-existing anonymous-default-export theme warnings; baseline was 4 errors/8 warnings |
+| Frontend `yarn test` | 141 passed, zero failures/skips; also 141 passed after the separate frozen clean install |
+| Frontend `yarn validate:contracts` | 63 documents and 16 variable fixtures, zero errors |
+| Frontend `yarn audit:i18n` | Passed; four dictionaries preserved |
+| Backend `./node_modules/.bin/tsc --noEmit --incremental false` | Passed |
+| Backend `./node_modules/.bin/eslint 'apps/**/*.ts'` | Passed, no fixes |
+| Backend `./node_modules/.bin/jest --runInBand --no-cache --silent` | All 164 tests / 18 suites passed, including uploads |
+| API `node -r dotenv/config ./node_modules/jest/bin/jest.js --config apps/trip-link/test/jest-e2e.json --runInBand --no-cache --silent` | All 248 tests / 18 suites passed |
+| Batch equivalent with `apps/batch/test/jest-e2e.json` | All 17 tests / 3 suites passed |
+| Frontend `NEXT_TELEMETRY_DISABLED=1 yarn build` | Passed after the frozen clean install; all 98 static pages generated |
+| Backend `nest build trip-link` and `nest build batch` | Both Webpack builds passed |
+| Git diff whitespace and approved-file checks | Passed |
+
+- Tests total 570 passing: 141 frontend + 164 unit + 248 API + 17 batch. No configured backend suite was excluded in Stage 2. Expected rejection, injected rollback and oversized-WebSocket error logs accompanied passing assertions.
+- Integration suites used their guarded uniquely named disposable databases, performed their exact-name cleanup and closed task-owned applications/clients. Existing development members, counters, uploads and business records were not used as fixtures. Real Google/Kakao/Telegram provider exchanges, SMTP delivery, Gemini provider traffic and saved live Postman examples were not performed; provider/SMTP/AI paths use the existing mocks where configured.
+- Production builds ran in temporary source snapshots to avoid overwriting the running development build directories. The frontend snapshot had a fresh independent dependency installation; the backend snapshot used the synchronized backend installation. No build output or generated source file was added to either repository.
+- Read-only production HTTP smoke checks on task-owned 127.0.0.1:3017 verified homepage, tours/detail, agents, community, Help Center, join/recovery, member/admin shells, Korean/Russian/Uzbek routes, legacy property/help/admin redirects and the intentionally unsupported inquiry 404. An initial expectation for `/uz/` was corrected: its existing canonical redirect is 308 to `/uz`, which returned 200 with Uzbek markup; this required no code change.
+- Native Chrome verified the production homepage shell/media/navigation and navigation to the rendered tour filter controls. The temporary origin is not allowlisted by the existing backend, so session restoration reported an error and live query data remained loading; full browser role/data acceptance is not claimed. Automated component and API suites cover the protected flows. The task-owned browser tab and production server were closed.
+
+### Measurements, preserved uncertainties and remaining limits
+
+- Exactly eight approved files deleted (seven frontend, one backend), totaling 17,217 source bytes. Frontend TypeScript file count: 112 -> 106; backend: 179 -> 178. No media/translation/database file was removed. These counts do not establish runtime performance gains.
+- After-only frontend production build: 28.11 seconds reported by Yarn; homepage First Load JS 503 kB; shared First Load JS 257 kB. No comparable before-cleanup production build was collected, so no bundle or speed improvement is claimed.
+- Remaining build/runtime warnings: approximately 132 kB localized page data exceeds Next's 128 kB threshold; optional production image optimizer `sharp` is absent. Existing dependency peer warnings and the two active theme lint warnings remain outside the approved cleanup. The backend's audit-only stricter unused-parameter finding in OAuth `start(req)` was intentionally preserved.
+- Relinking node_modules left the user's already-running frontend dev compiler holding a stale nested Emotion module path and showing ENOENT. Requested permission to restart; the user explicitly chose **leave it running; I will restart it**. The existing dev process was not stopped/restarted. The independent clean install/build/tests pass. Restarting the frontend dev server is the user's outstanding local action.
+- Cleanup is complete within the approved safe scope; manual-review candidates are retained. No real-provider, production hosting, all-browser/mobile or load acceptance is claimed.
+- Suggested frontend commit: `chore: remove unused frontend code and dependencies`.
+- Suggested backend commit: `chore: remove unused backend type and dependencies`.
+- Next proposed backend task, requiring separate scope approval: review the retained dependency/peer relationships and explicitly declare existing operational imports before further dependency pruning.
