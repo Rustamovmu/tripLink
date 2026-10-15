@@ -529,25 +529,32 @@ export class TourService {
 		if (search.difficulties?.length) match.tourDifficulty = { $in: search.difficulties };
 
 		if (search.priceRange) {
-			this.validateRange(search.priceRange.start, search.priceRange.end);
+			const { start, end } = search.priceRange;
+			this.validateRange(start, end);
+			const effectivePrice = { $ifNull: ['$tourDiscountPrice', '$tourPrice'] };
 			match.$expr = {
 				$and: [
-					{ $gte: [{ $ifNull: ['$tourDiscountPrice', '$tourPrice'] }, search.priceRange.start] },
-					{ $lte: [{ $ifNull: ['$tourDiscountPrice', '$tourPrice'] }, search.priceRange.end] },
+					...(start != null ? [{ $gte: [effectivePrice, start] }] : []),
+					...(end != null ? [{ $lte: [effectivePrice, end] }] : []),
 				],
 			};
 		}
 
 		if (search.durationRange) {
-			this.validateRange(search.durationRange.start, search.durationRange.end);
-			match.tourDurationDays = { $gte: search.durationRange.start, $lte: search.durationRange.end };
+			const { start, end } = search.durationRange;
+			this.validateRange(start, end);
+			match.tourDurationDays = {
+				...(start != null ? { $gte: start } : {}),
+				...(end != null ? { $lte: end } : {}),
+			};
 		}
 
 		if (search.availableDateRange) {
-			this.validateRange(search.availableDateRange.start.getTime(), search.availableDateRange.end.getTime());
+			const { start, end } = search.availableDateRange;
+			this.validateRange(start?.getTime(), end?.getTime());
 			const availableDateMatch: Record<string, unknown> = {
-				startDate: { $lte: search.availableDateRange.end },
-				endDate: { $gte: search.availableDateRange.start },
+				...(end != null ? { startDate: { $lte: end } } : {}),
+				...(start != null ? { endDate: { $gte: start } } : {}),
 			};
 			if (search.minimumAvailableSeats !== undefined) {
 				availableDateMatch.availableSeats = { $gte: search.minimumAvailableSeats };
@@ -562,8 +569,9 @@ export class TourService {
 		if (search.text?.trim()) match.$text = { $search: search.text.trim() };
 	}
 
-	private validateRange(start: number, end: number): void {
-		if (start > end) throw new BadRequestException(Message.BAD_REQUEST);
+	private validateRange(start?: number | null, end?: number | null): void {
+		if ((start == null && end == null) || (start != null && end != null && start > end))
+			throw new BadRequestException(Message.BAD_REQUEST);
 	}
 
 	private slugify(value: string): string {

@@ -1,5 +1,8 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Types } from 'mongoose';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+import { ToursInquiry } from '../../libs/dto/tour/tour.input';
 import { Direction } from '../../libs/enums/common.enum';
 import { MemberType } from '../../libs/enums/member.enum';
 import { TourCategory, TourDifficulty, TourStatus } from '../../libs/enums/tour.enum';
@@ -96,6 +99,79 @@ describe('TourService search and access boundaries', () => {
 				metaCounter: [{ $count: 'total' }],
 			},
 		});
+	});
+
+	it.each(['start', 'end'] as const)('applies only the supplied %s price, duration and date bounds', async (side) => {
+		const date = new Date('2035-01-02');
+		const operator = side === 'start' ? '$gte' : '$lte';
+		await service.getTours({
+			page: 1,
+			limit: 10,
+			search: {
+				priceRange: { [side]: 0 },
+				durationRange: { [side]: 5 },
+				availableDateRange: { [side]: date },
+				minimumAvailableSeats: 2,
+			},
+		});
+		expect(pipeline()[0]).toEqual({
+			$match: {
+				tourStatus: { $in: [TourStatus.ACTIVE, TourStatus.SOLD_OUT] },
+				$expr: { $and: [{ [operator]: [{ $ifNull: ['$tourDiscountPrice', '$tourPrice'] }, 0] }] },
+				tourDurationDays: { [operator]: 5 },
+				tourAvailableDates: {
+					$elemMatch: {
+						[side === 'start' ? 'endDate' : 'startDate']: { [operator]: date },
+						availableSeats: { $gte: 2 },
+					},
+				},
+			},
+		});
+	});
+
+	it('treats a null endpoint as absent and rejects ranges with no bounds', async () => {
+		await service.getTours({ page: 1, limit: 10, search: { priceRange: { start: null, end: 100 } } });
+		expect(pipeline()[0]).toMatchObject({
+			$match: {
+				$expr: { $and: [{ $lte: [{ $ifNull: ['$tourDiscountPrice', '$tourPrice'] }, 100] }] },
+			},
+		});
+		for (const search of [
+			{ priceRange: {} },
+			{ durationRange: {} },
+			{ availableDateRange: {} },
+			{ priceRange: { start: null, end: null } },
+		]) {
+			await expect(service.getTours({ page: 1, limit: 10, search })).rejects.toBeInstanceOf(BadRequestException);
+		}
+		expect(aggregate).toHaveBeenCalledTimes(1);
+	});
+
+	it('validates each supplied bound with the nested DTO and keeps omitted endpoints optional', () => {
+		const failures = (search: unknown) =>
+			validateSync(plainToInstance(ToursInquiry, { page: 1, limit: 10, search }), {
+				whitelist: true,
+				forbidNonWhitelisted: true,
+			});
+		for (const side of ['start', 'end']) {
+			expect(
+				failures({
+					priceRange: { [side]: 0 },
+					durationRange: { [side]: 1 },
+					availableDateRange: { [side]: '2035-01-01T00:00:00.000Z' },
+				}),
+			).toEqual([]);
+			for (const search of [
+				{ priceRange: { [side]: -1 } },
+				{ priceRange: { [side]: Infinity } },
+				{ durationRange: { [side]: 0 } },
+				{ durationRange: { [side]: 366 } },
+				{ durationRange: { [side]: 1.5 } },
+				{ availableDateRange: { [side]: 'invalid' } },
+			]) {
+				expect(failures(search).length).toBeGreaterThan(0);
+			}
+		}
 	});
 
 	it('uses a stable ID tie-breaker for equal sort values (regression)', async () => {

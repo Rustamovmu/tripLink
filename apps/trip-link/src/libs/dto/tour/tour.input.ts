@@ -187,43 +187,49 @@ export class TourInput {
 
 @InputType()
 export class PriceRangeInput {
+	@IsOptional()
 	@IsNumber()
 	@Min(0)
-	@Field(() => Float)
-	start!: number;
+	@Field(() => Float, { nullable: true })
+	start?: number | null;
 
+	@IsOptional()
 	@IsNumber()
 	@Min(0)
-	@Field(() => Float)
-	end!: number;
+	@Field(() => Float, { nullable: true })
+	end?: number | null;
 }
 
 @InputType()
 export class DurationRangeInput {
+	@IsOptional()
 	@IsInt()
 	@Min(1)
 	@Max(365)
-	@Field(() => Int)
-	start!: number;
+	@Field(() => Int, { nullable: true })
+	start?: number | null;
 
+	@IsOptional()
 	@IsInt()
 	@Min(1)
 	@Max(365)
-	@Field(() => Int)
-	end!: number;
+	@Field(() => Int, { nullable: true })
+	end?: number | null;
 }
 
 @InputType()
 export class DateRangeInput {
+	@IsOptional()
 	@IsDate()
 	@Type(() => Date)
-	@Field(() => Date)
-	start!: Date;
+	@Field(() => Date, { nullable: true })
+	start?: Date | null;
 
+	@IsOptional()
 	@IsDate()
 	@Type(() => Date)
-	@Field(() => Date)
-	end!: Date;
+	@Field(() => Date, { nullable: true })
+	end?: Date | null;
 }
 
 @InputType()

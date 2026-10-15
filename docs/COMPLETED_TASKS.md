@@ -1256,3 +1256,52 @@ Backend:
 - Suggested frontend commit: `chore: remove unused frontend code and dependencies`.
 - Suggested backend commit: `chore: remove unused backend type and dependencies`.
 - Next proposed backend task, requiring separate scope approval: review the retained dependency/peer relationships and explicitly declare existing operational imports before further dependency pruning.
+
+
+## Optional tour search bounds — 2026-10-15
+
+- Request: allow From or Until alone, minimum or maximum days alone, and minimum or maximum price alone. Both endpoints remain supported. Nestar uses mandatory paired ranges; its property filter/query structure is retained as the reference, with TripLink-specific date overlap and effective-price rules.
+- GraphQL `PriceRangeInput`, `DurationRangeInput`, and `DateRangeInput` now expose nullable/optional `start` and `end`. Queries compare only supplied endpoints; no artificial date, price or duration limits are inserted. Explicit null means absent. Empty range objects and inverted paired ranges are rejected. Price still uses the discount when present (including zero); date overlap and minimum seats stay in the same departure `$elemMatch`. Roles, auth, output DTOs and database schemas are unchanged; no migration is needed.
+- Frontend parsing/types, readable and JSON URLs, draft application, summary labels, homepage departure search, and EN/KR/UZ instructions support either endpoint. Clearing the only endpoint removes that filter; clearing one endpoint of a paired range retains the other. Calendar selections include the whole local day, and untouched ISO/DST endpoints keep their original instants.
+- Backend files changed: `apps/trip-link/src/libs/dto/tour/tour.input.ts`, `apps/trip-link/src/components/tour/tour.service.ts`, `apps/trip-link/src/components/tour/tour.service.spec.ts`, and this task log.
+- Frontend files changed: `libs/components/triplink/TourSearch.tsx`, `libs/triplink/tourSearchUrl.ts`, `libs/triplink/homeSearch.ts`, `libs/types/triplink/index.ts`, `public/locales/en/common.json`, `public/locales/kr/common.json`, `public/locales/uz/common.json`, `scripts/contract-fixtures.cjs`, `tests/tour-search-url.test.cjs`, `tests/tour-search-hydration.test.cjs`, and `tests/home-search.test.cjs`.
+- Validation in a temporary backend source copy before application: non-writing backend typecheck, focused non-fixing lint, and 14 tour-service/DTO tests passed. Frontend non-writing Yarn typecheck, focused non-fixing lint, translation audit, and 16 focused URL/form/home-search tests passed. Database-free GraphQL validation: 63 documents and 22 input fixtures, zero errors, including all six single-bound forms. No database fixtures, counters, uploads or existing servers were changed by these checks. These results are not a whole-backend integration pass or saved live Postman responses.
+
+### Postman verification (read only)
+
+Endpoint: POST `http://localhost:3007/graphql`. Use the updated backend process. Public reads need no token; if supplying a token, use an ACTIVE USER/AGENT/ADMIN account with a valid current access token. No disposable fixtures or cleanup are required for public list reads. Do not use detail reads to test list filters because authenticated details can record visits.
+
+Operation:
+
+```graphql
+query OptionalTourBounds($input: ToursInquiry!) {
+  getTours(input: $input) {
+    list {
+      _id
+      tourPrice
+      tourDiscountPrice
+      tourDurationDays
+      tourAvailableDates { startDate endDate availableSeats }
+    }
+    metaCounter { total }
+  }
+}
+```
+
+Send each exact Variables JSON independently:
+
+```json
+{"input":{"page":1,"limit":10,"search":{"priceRange":{"start":0}}}}
+{"input":{"page":1,"limit":10,"search":{"priceRange":{"end":250}}}}
+{"input":{"page":1,"limit":10,"search":{"durationRange":{"start":3}}}}
+{"input":{"page":1,"limit":10,"search":{"durationRange":{"end":20}}}}
+{"input":{"page":1,"limit":10,"search":{"availableDateRange":{"start":"2027-03-12T00:00:00.000Z"}}}}
+{"input":{"page":1,"limit":10,"search":{"availableDateRange":{"end":"2027-03-12T23:59:59.999Z"}}}}
+```
+
+Expected: HTTP 200 without GraphQL errors, possibly an empty list when no public tour matches. Check effective price (`tourDiscountPrice ?? tourPrice`), duration or date overlap against the supplied endpoint only. From requires a departure ending at or after the chosen lower bound; Until requires one starting at or before the chosen upper bound. Add `minimumAvailableSeats` to verify that same departure also has enough seats. UI-generated calendar bounds use local midnight/end of day rather than necessarily the UTC examples above.
+
+Rejections: use the same operation with `{"input":{"page":1,"limit":10,"search":{"priceRange":{"start":300,"end":100}}}}` or `{"input":{"page":1,"limit":10,"search":{"durationRange":{}}}}`; expect a GraphQL `BAD_REQUEST` error and no list. Negative price, fractional/out-of-range duration and malformed dates are rejected by input validation/coercion. No development records need changing, and no response is a saved live example unless separately captured in Postman.
+
+Suggested commits: frontend `feat: allow either endpoint in tour search filters`; backend `feat: support optional tour search bounds`.
+Next proposed backend task: expand disposable-database integration coverage of combined optional bounds and seat filters; this was not run as part of the focused checks above.
