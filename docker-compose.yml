@@ -1,0 +1,59 @@
+services:
+  triplink-api:
+    container_name: triplink-api
+    image: node:22-bookworm-slim
+    restart: always
+    init: true
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT_API: '3007'
+      FRONTEND_ORIGINS: '${FRONTEND_ORIGINS:?Set FRONTEND_ORIGINS to your HTTPS frontend origin in .env}'
+    ports:
+      - '4001:3007'
+    volumes:
+      - ./:/usr/src/triplink
+      - api-node-modules:/usr/src/triplink/node_modules
+      - api-dist:/usr/src/triplink/dist
+    working_dir: /usr/src/triplink
+    networks:
+      - triplink-network
+    command:
+      - bash
+      - -c
+      - npm ci --include=dev && npm run build -- trip-link && exec npm run start:prod
+
+  triplink-batch:
+    container_name: triplink-batch
+    image: node:22-bookworm-slim
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT_BATCH: '3008'
+    ports:
+      - '4002:3008'
+    volumes:
+      - ./:/usr/src/triplink
+      - batch-node-modules:/usr/src/triplink/node_modules
+      - batch-dist:/usr/src/triplink/dist
+    working_dir: /usr/src/triplink
+    networks:
+      - triplink-network
+    command:
+      - bash
+      - -c
+      - npm ci --include=dev && npm run build -- batch && exec npm run start:prod:batch
+
+networks:
+  triplink-network:
+    driver: bridge
+
+volumes:
+  api-node-modules:
+  api-dist:
+  batch-node-modules:
+  batch-dist:
