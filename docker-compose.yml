@@ -7,9 +7,9 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       PORT_API: '3007'
-      FRONTEND_ORIGINS: '${FRONTEND_ORIGINS:?Set FRONTEND_ORIGINS to your HTTPS frontend origin in .env}'
+      FRONTEND_ORIGINS: '${FRONTEND_ORIGINS:?Set FRONTEND_ORIGINS to your frontend origin in .env}'
     ports:
       - '4001:3007'
     volumes:
@@ -22,7 +22,7 @@ services:
     command:
       - bash
       - -c
-      - npm ci --include=dev && npm run build -- trip-link && exec npm run start:prod
+      - npm ci --include=dev && npm run build -- trip-link && exec node dist/apps/trip-link/main
 
   triplink-batch:
     container_name: triplink-batch
@@ -32,7 +32,7 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       PORT_BATCH: '3008'
     ports:
       - '4002:3008'
