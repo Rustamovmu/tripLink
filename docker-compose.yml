@@ -7,11 +7,11 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       PORT_API: '3007'
       FRONTEND_ORIGINS: '${FRONTEND_ORIGINS:?Set FRONTEND_ORIGINS to your frontend origin in .env}'
     ports:
-      - '4001:3007'
+      - '127.0.0.1:4001:3007'
     volumes:
       - ./:/usr/src/triplink
       - api-node-modules:/usr/src/triplink/node_modules
@@ -32,10 +32,10 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       PORT_BATCH: '3008'
     ports:
-      - '4002:3008'
+      - '127.0.0.1:4002:3008'
     volumes:
       - ./:/usr/src/triplink
       - batch-node-modules:/usr/src/triplink/node_modules

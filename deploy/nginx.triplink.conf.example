@@ -1,0 +1,43 @@
+# Example for a SINGLE host Nginx proxy. Not installed or enabled by this task.
+# Replace triplink.example and certificate paths with the selected real HTTPS host.
+# Put in the Nginx http context (for example sites-enabled/conf.d, as appropriate).
+map $http_upgrade $triplink_connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+server {
+    listen 80;
+    server_name triplink.example;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name triplink.example;
+    ssl_certificate /etc/letsencrypt/live/triplink.example/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/triplink.example/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # Up to ten 15 MB files plus multipart overhead. API per-file/count limits still apply.
+    client_max_body_size 160m;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # Overwrite untrusted incoming forwarding headers for this single-proxy topology.
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $triplink_connection_upgrade;
+
+    # No URI suffix on proxy_pass: preserve the original route and cookie Path=/auth.
+    # Do not rewrite Set-Cookie, combine its headers, cache auth responses or log credentials.
+    location = /graphql { proxy_pass http://127.0.0.1:4001; }
+    location ^~ /auth/ { proxy_pass http://127.0.0.1:4001; }
+    location ^~ /uploads/ { proxy_pass http://127.0.0.1:4001; }
+    location = /chat {
+        proxy_pass http://127.0.0.1:4001;
+        proxy_read_timeout 3600s;
+    }
+    location / { proxy_pass http://127.0.0.1:4000; }
+}
